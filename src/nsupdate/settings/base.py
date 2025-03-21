@@ -446,3 +446,5 @@ LANGUAGES = (
 
 # silences 1_6.W001 warning you get without this:
 TEST_RUNNER = 'django.test.runner.DiscoverRunner'
+
+DEFAULT_REALM = 'nsupdate.info'

@@ -356,40 +356,52 @@ class NicUpdateView(View):
         :param request: django request object
         :param delete: False means update, True means delete - used by NicDeleteView
         :return: HttpResponse object
+
+        # TODO: wildcard support
         """
         hostname = request.GET.get('hostname')
         if hostname in settings.BAD_HOSTS:
             return Response('abuse', status=403)
-        auth = request.META.get('HTTP_AUTHORIZATION')
-        if auth is None:
-            # logging this at debug level because otherwise it fills our logs...
-            logger.debug('%s - received no auth' % (hostname, ))
-            return basic_challenge("authenticate to update DNS", 'badauth')
-        username, password = basic_authenticate(auth)
-        if '.' not in username:  # username MUST be the fqdn
-            # specifically point to configuration errors on client side
-            return Response('notfqdn')
-        if username in settings.BAD_HOSTS:
-            return Response('abuse', status=403)
-        host = check_api_auth(username, password)
-        if host is None:
-            return basic_challenge("authenticate to update DNS", 'badauth')
-        logger.info("authenticated by update secret for host %s" % username)
-        if hostname is None:
-            # as we use update_username == hostname, we can fall back to that:
-            hostname = username
-        elif hostname != username:
-            if '.' not in hostname:
+        if hasattr(request, 'user') and request.user is not None and request.user.is_authenticated:
+            # user is authenticated with a bearer token
+            fqdn = request.GET.get('fqdn', hostname)
+            if fqdn is None:
+                return json_resp_error('Missing parameter: fqdn', http_status=400)
+            host = Host.get_by_fqdn(fqdn, created_by=request.user.id)
+            if host is None:
+                return json_resp_error('Host not found or unauthorized to update this host: %s' % fqdn, http_status=400)
+        else:
+            # basic auth needed
+            auth = request.META.get('HTTP_AUTHORIZATION')
+            if auth is None:
+                # logging this at debug level because otherwise it fills our logs...
+                logger.debug('%s - received no auth' % (hostname, ))
+                return basic_challenge("authenticate to update DNS", 'badauth')
+            username, password = basic_authenticate(auth)
+            if '.' not in username:  # username MUST be the fqdn
                 # specifically point to configuration errors on client side
-                result = 'notfqdn'
-            else:
-                # maybe this host is owned by same person, but we can't know.
-                result = 'nohost'  # or 'badauth'?
-            msg = ("rejecting to update wrong host %s (given in query string) "
-                   "[instead of %s (given in basic auth)]" % (hostname, username))
-            logger.warning(msg)
-            host.register_client_result(msg, fault=True)
-            return Response(result)
+                return Response('notfqdn')
+            if username in settings.BAD_HOSTS:
+                return Response('abuse', status=403)
+            host = check_api_auth(username, password)
+            if host is None:
+                return basic_challenge("authenticate to update DNS", 'badauth')
+            logger.info("authenticated by update secret for host %s" % username)
+            if hostname is None:
+                # as we use update_username == hostname, we can fall back to that:
+                hostname = username
+            elif hostname != username:
+                if '.' not in hostname:
+                    # specifically point to configuration errors on client side
+                    result = 'notfqdn'
+                else:
+                    # maybe this host is owned by same person, but we can't know.
+                    result = 'nohost'  # or 'badauth'?
+                msg = ("rejecting to update wrong host %s (given in query string) "
+                       "[instead of %s (given in basic auth)]" % (hostname, username))
+                logger.warning(msg)
+                host.register_client_result(msg, fault=True)
+                return Response(result)
         agent = request.META.get('HTTP_USER_AGENT', 'unknown')
         if agent in settings.BAD_AGENTS:
             msg = '%s - received update from bad user agent %r' % (hostname, agent)

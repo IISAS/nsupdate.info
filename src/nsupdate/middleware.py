@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import get_backends
 from django.http import HttpResponse, JsonResponse
 from social_core.backends.oauth import BaseOAuth2
@@ -32,7 +33,13 @@ class BearerTokenMiddleware:
                     except Exception as e:
                         msg = 'Unauthorized access'
                         status = 401
-                        return JsonResponse({'error': msg}, status=status)
+                        return JsonResponse(
+                            {'error': msg},
+                            headers={
+                                'WWW-Authenticate': 'Bearer realm="%s"' % settings.DEFAULT_REALM
+                            },
+                            status=status
+                        )
                     try:
                         social_auth = UserSocialAuth.objects.get(provider=backend.name,
                                                                  uid=user_data.get(backend.ID_KEY))

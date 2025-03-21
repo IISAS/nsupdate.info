@@ -276,13 +276,13 @@ class Host(models.Model):
 
     def get_fqdn(self):
         return dnstools.FQDN(self.name, self.domain.name)
-    
+
     def get_fqdn_wildcard(self):
         return dnstools.FQDN(
             f'*.{self.name}',
             self.domain.name
         )
-    
+
     @classmethod
     def get_by_fqdn(cls, fqdn, **kwargs):
         # Assuming subdomain has no dots (.) the fqdn is split at the first dot

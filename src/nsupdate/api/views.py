@@ -184,6 +184,7 @@ def check_session_auth(user, hostname):
     # we either have one now and return it, or we have None and return that.
     return host
 
+
 def create_json_resp(status='ok', message=None, http_status=200, **kwargs):
     r = {'status': status}
     if message is not None and message != '':
@@ -209,10 +210,10 @@ def add_host(user, remote_addr, name, domain_id, comment, wildcard):
         'wildcard': wildcard,
         'comment': comment
     })
-    
+
     if not form.is_valid():
         return json_resp_error('Bad request', http_status=400, errors=form.errors)
-    
+
     host = form.save(commit=False)
     try:
         dnstools.add(host.get_fqdn(), normalize_ip(remote_addr))
@@ -242,7 +243,7 @@ def add_host(user, remote_addr, name, domain_id, comment, wildcard):
         host.last_update_ipv6 = dt_now
         host.save()
         update_secret = host.generate_secret()
-        
+
         response = create_json_resp(
             status='ok',
             message='Host added.',
@@ -260,7 +261,7 @@ def add_host(user, remote_addr, name, domain_id, comment, wildcard):
                 IPv6_update_url=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV6_HOST}/nic/update'
             )
         )
-        
+
         return response
 
 
@@ -269,22 +270,22 @@ class NicRegisterView(View):
     def get(self, request, logger=None):
         """
           API for hostname registration
-    
+
           Examples:
           curl --request GET \
             --url https:/nsupdate.fedcloud.eu/nic/register?fqdn=${NAME}.${DOMAIN} \
             --header 'Authorization: Bearer $ACCESS_TOKEN'
-    
+
           curl --request GET \
             --url https:/nsupdate.fedcloud.eu/nic/register?name=${NAME}&domain=${DOMAIN} \
             --header 'Authorization: Bearer $ACCESS_TOKEN'
-    
+
           :param request: django request object
           :return: JsonResponse object
         """
         if not request.user.is_authenticated:
             return json_resp_error('Unauthorized access', http_status=401)
-        
+
         # read parameters from the request
         if 'fqdn' in request.GET:
             fqdn = request.GET.get('fqdn')
@@ -296,15 +297,15 @@ class NicRegisterView(View):
                 return json_resp_error('Missing parameter: domain', http_status=400)
             name = request.GET.get('name')
             domain = request.GET.get('domain')
-        
+
         wildcard = request.GET.get('wildcard', 'false').lower() in ['true', '1', 'yes']
-        
+
         comment = request.GET.get('comment')
-        
+
         domains = Domain.objects.filter(
             Q(name=domain) & (Q(created_by=request.user) | Q(public=True))
         )
-        
+
         # check if the domain exists and if it is unique,
         # because we will need an id of an existing domain
         # for the CreateHostForm
@@ -313,10 +314,10 @@ class NicRegisterView(View):
         if domains.count() > 1:
             # should not occur
             return json_resp_error('Domain name is not unique', http_status=500)
-        
+
         # get the id of the submitted domain
         domain_id = domains.first().id
-        
+
         response = add_host(
             user=request.user,
             remote_addr=request.META['REMOTE_ADDR'],
@@ -324,8 +325,9 @@ class NicRegisterView(View):
             domain_id=domain_id,
             comment=comment, wildcard=wildcard
         )
-        
+
         return response
+
 
 class NicUpdateView(View):
     @log.logger(__name__)

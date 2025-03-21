@@ -15,7 +15,7 @@ from .dnstools import check_domain, NameServerNotAvailable
 class CreateHostForm(forms.ModelForm):
     class Meta(object):
         model = Host
-        fields = ['name', 'domain', 'comment']
+        fields = ['name', 'domain', 'wildcard', 'comment']
         widgets = {
             'name': forms.widgets.TextInput(attrs=dict(autofocus=None)),
         }

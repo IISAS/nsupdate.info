@@ -193,7 +193,7 @@ class OverviewView(TemplateView):
         context['nav_overview'] = True
         context['hosts'] = Host.objects.filter(created_by=self.request.user).select_related("domain")\
             .only("name", "comment", "available", "client_faults", "server_faults", "abuse_blocked", "abuse",
-                  "last_update_ipv4", "tls_update_ipv4", "last_update_ipv6", "tls_update_ipv6", "domain__name")
+                  "last_update_ipv4", "tls_update_ipv4", "last_update_ipv6", "tls_update_ipv6", "domain__name", "wildcard")
         context['your_domains'] = Domain.objects.filter(
             created_by=self.request.user).select_related("created_by__profile")\
             .only("name", "public", "available", "comment", "created_by__username")
@@ -225,6 +225,8 @@ class AddHostView(CreateView):
         self.object = form.save(commit=False)
         try:
             dnstools.add(self.object.get_fqdn(), normalize_ip(self.request.META['REMOTE_ADDR']))
+            if self.object.wildcard:
+                dnstools.add(self.object.get_fqdn_wildcard(), normalize_ip(self.request.META['REMOTE_ADDR']))
         except dnstools.Timeout:
             success, level, msg = False, messages.ERROR, 'Timeout - communicating to name server failed.'
         except dnstools.NameServerNotAvailable:

@@ -168,6 +168,11 @@ class Host(models.Model):
         ],
         help_text=_("The name of your host."))
     domain = models.ForeignKey(Domain, on_delete=models.CASCADE, verbose_name=_("domain"))
+    wildcard = models.BooleanField(
+        _("wildcard"),
+        default=False,
+        help_text=_("Register wildcard to DNS; e.g., *.name.domain")
+    )
     update_secret = models.CharField(
         _("update secret"),
         max_length=128,  # secret gets hashed (on save) to salted sha1, "sha1" + "$" + 22 chars salt + "$" + 40 chars sha1 = 68 chars
@@ -271,6 +276,12 @@ class Host(models.Model):
 
     def get_fqdn(self):
         return dnstools.FQDN(self.name, self.domain.name)
+
+    def get_fqdn_wildcard(self):
+        return dnstools.FQDN(
+            f'*.{self.name}',
+            self.domain.name
+        )
 
     @classmethod
     def get_by_fqdn(cls, fqdn, **kwargs):

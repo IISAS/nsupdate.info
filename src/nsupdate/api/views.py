@@ -13,15 +13,19 @@ from importlib import import_module
 from netaddr import IPAddress, IPNetwork
 from netaddr.core import AddrFormatError
 
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.conf import settings
+from django.db.models import Q
 from django.views.generic.base import View
 from django.contrib.auth.hashers import check_password
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
+from django.utils.timezone import now
 
 from ..utils import log, ddns_client
-from ..main.models import Host
+from ..main import dnstools
+from ..main.models import Domain, Host
+from ..main.forms import CreateHostForm
 from ..main.dnstools import (FQDN, update, delete, check_ip, put_ip_into_session,
                              SameIpError, DnsUpdateError, NameServerNotAvailable)
 from ..main.iptools import normalize_ip
@@ -180,6 +184,148 @@ def check_session_auth(user, hostname):
     # we either have one now and return it, or we have None and return that.
     return host
 
+def create_json_resp(status='ok', message=None, http_status=200, **kwargs):
+    r = {'status': status}
+    if message is not None and message != '':
+        r['message'] = message
+    if kwargs is not None and isinstance(kwargs, dict) and len(kwargs) > 0:
+        r.update(**kwargs)
+    return JsonResponse(r, status=http_status)
+
+
+def json_resp_error(message, http_status=502, **kwargs):
+    return create_json_resp(
+        status='error',
+        message=message,
+        http_status=http_status,
+        **kwargs
+    )
+
+
+def add_host(user, remote_addr, name, domain_id, comment, wildcard):
+    form = CreateHostForm({
+        'name': name,
+        'domain': domain_id,
+        'wildcard': wildcard,
+        'comment': comment
+    })
+    
+    if not form.is_valid():
+        return json_resp_error('Bad request', http_status=400, errors=form.errors)
+    
+    host = form.save(commit=False)
+    try:
+        dnstools.add(host.get_fqdn(), normalize_ip(remote_addr))
+        if host.wildcard:
+            dnstools.add(host.get_fqdn_wildcard(), normalize_ip(remote_addr))
+    except dnstools.Timeout:
+        return json_resp_error('Timeout - communicating to name server failed.')
+    except dnstools.NameServerNotAvailable:
+        return json_resp_error('Name server unavailable.')
+    except dnstools.NoNameservers:
+        return json_resp_error('Resolving failed: No name servers.')
+    except dnstools.DnsUpdateError as e:
+        return json_resp_error('DNS update error [%s].' % str(e))
+    except Domain.DoesNotExist:
+        # should not happen: POST data had invalid (base)domain
+        return json_resp_error('Base domain does not exist.')
+    except dnstools.SameIpError:
+        return json_resp_error('Host already exists in DNS.')
+    except dnstools.DNSException as e:
+        return json_resp_error('DNSException [%s]' % str(e))
+    except OSError as err:  # was: socket.error (deprecated)
+        return json_resp_error('Communication to name server failed [%s]' % str(err))
+    else:
+        host.created_by = user
+        dt_now = now()
+        host.last_update_ipv4 = dt_now
+        host.last_update_ipv6 = dt_now
+        host.save()
+        update_secret = host.generate_secret()
+        
+        response = create_json_resp(
+            status='ok',
+            message='Host added.',
+            host=dict(
+                name=host.name,
+                domain=host.domain.name,
+                fqdn=f'{host.get_fqdn()}',
+                wildcard=host.wildcard,
+                comment=host.comment,
+                update_secret=update_secret,
+                created_by=host.created_by.username,
+                last_update_ipv4=f'{host.last_update_ipv4.isoformat()}',
+                last_update_ipv6=f'{host.last_update_ipv6.isoformat()}',
+                IPv4_update_url=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV4_HOST}/nic/update',
+                IPv6_update_url=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV6_HOST}/nic/update'
+            )
+        )
+        
+        return response
+
+
+class NicRegisterView(View):
+    @log.logger(__name__)
+    def get(self, request, logger=None):
+        """
+          API for hostname registration
+    
+          Examples:
+          curl --request GET \
+            --url https:/nsupdate.fedcloud.eu/nic/register?fqdn=${NAME}.${DOMAIN} \
+            --header 'Authorization: Bearer $ACCESS_TOKEN'
+    
+          curl --request GET \
+            --url https:/nsupdate.fedcloud.eu/nic/register?name=${NAME}&domain=${DOMAIN} \
+            --header 'Authorization: Bearer $ACCESS_TOKEN'
+    
+          :param request: django request object
+          :return: JsonResponse object
+        """
+        if not request.user.is_authenticated:
+            return json_resp_error('Unauthorized access', http_status=401)
+        
+        # read parameters from the request
+        if 'fqdn' in request.GET:
+            fqdn = request.GET.get('fqdn')
+            name, domain = fqdn.split('.', 1)
+        else:
+            if 'name' not in request.GET:
+                return json_resp_error('Missing parameter: name', http_status=400)
+            if 'domain' not in request.GET:
+                return json_resp_error('Missing parameter: domain', http_status=400)
+            name = request.GET.get('name')
+            domain = request.GET.get('domain')
+        
+        wildcard = request.GET.get('wildcard', 'false').lower() in ['true', '1', 'yes']
+        
+        comment = request.GET.get('comment')
+        
+        domains = Domain.objects.filter(
+            Q(name=domain) & (Q(created_by=request.user) | Q(public=True))
+        )
+        
+        # check if the domain exists and if it is unique,
+        # because we will need an id of an existing domain
+        # for the CreateHostForm
+        if not domains.exists():
+            return json_resp_error('Domain does not exist', http_status=400)
+        if domains.count() > 1:
+            # should not occur
+            return json_resp_error('Domain name is not unique', http_status=500)
+        
+        # get the id of the submitted domain
+        domain_id = domains.first().id
+        
+        response = add_host(
+            user=request.user,
+            remote_addr=request.META['REMOTE_ADDR'],
+            name=name,
+            domain_id=domain_id,
+            comment=comment, wildcard=wildcard
+        )
+        
+        return response
 
 class NicUpdateView(View):
     @log.logger(__name__)

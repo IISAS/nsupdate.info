@@ -547,7 +547,7 @@ def _update_or_delete(host, ipaddr, secure=False, logger=None, _delete=False):
         else:
             update(fqdn, ipaddr)
             if host.wildcard:
-                update(host.get_fqdn_wildcard(), rdtype)
+                update(host.get_fqdn_wildcard(), ipaddr)
     except SameIpError:
         msg = '%s - received no-change update, ip: %s tls: %r' % (fqdn, ipaddr, secure)
         logger.warning(msg)

@@ -356,8 +356,6 @@ class NicUpdateView(View):
         :param request: django request object
         :param delete: False means update, True means delete - used by NicDeleteView
         :return: HttpResponse object
-
-        # TODO: wildcard support
         """
         hostname = request.GET.get('hostname')
         if hostname in settings.BAD_HOSTS:

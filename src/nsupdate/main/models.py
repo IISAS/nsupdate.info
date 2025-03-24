@@ -362,6 +362,8 @@ def pre_delete_host(sender, **kwargs):
     obj = kwargs['instance']
     try:
         dnstools.delete(obj.get_fqdn())
+        if obj.wildcard:
+            dnstools.delete(obj.get_fqdn_wildcard())
     except (dnstools.Timeout, dnstools.NameServerNotAvailable):
         # well, we tried to clean up, but we didn't reach the nameserver
         pass
@@ -378,6 +380,8 @@ def post_save_host(sender, **kwargs):
     if obj.abuse or obj.abuse_blocked:
         try:
             dnstools.delete(obj.get_fqdn())
+            if obj.wildcard:
+                dnstools.delete(obj.get_fqdn_wildcard())
         except (dnstools.Timeout, dnstools.NameServerNotAvailable):
             # well, we tried to clean up, but we didn't reach the nameserver
             pass

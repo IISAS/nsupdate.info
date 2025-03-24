@@ -375,7 +375,6 @@ class NicUpdateView(View):
                 return json_resp_error('Host not found or unauthorized to update this host: %s' % fqdn, http_status=400)
         else:
             # basic auth needed
-            auth = request.META.get('HTTP_AUTHORIZATION')
             if auth is None:
                 # logging this at debug level because otherwise it fills our logs...
                 logger.debug('%s - received no auth' % (hostname, ))

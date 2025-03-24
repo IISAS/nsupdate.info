@@ -367,16 +367,22 @@ class NicUpdateView(View):
             and request.user is not None \
             and request.user.is_authenticated:
             # user is authenticated with a bearer token
-            fqdn = request.GET.get('fqdn', hostname)
-            if fqdn is None:
-                return json_resp_error('Missing parameter: fqdn', http_status=400)
-            host = Host.get_by_fqdn(fqdn, created_by=request.user.id)
+            if hostname is None:
+                msg = 'Missing parameter: hostname'
+                logger.warning(msg)
+                return json_resp_error(msg, http_status=400)
+            if '.' not in hostname:
+                msg = 'Hostname is not a FQDN: %s' % hostname
+                logger.warning(msg)
+                return json_resp_error(msg, http_status=400)
+            host = Host.get_by_fqdn(hostname, created_by=request.user.id)
             if host is None:
-                return json_resp_error('Host not found or unauthorized to update this host: %s' % fqdn, http_status=400)
-            success_msg = 'success'
-            msg = "api authentication %s. [hostname: %s (given in fqdn parameter)]" % (success_msg, fqdn,)
+                msg = 'Host not found or unauthorized to update host: %s' % hostname
+                logger.warning(msg)
+                return json_resp_error(msg, http_status=400)
+            msg = "api authentication success. [hostname: %s (given in hostname parameter)]" % (hostname,)
             host.register_api_auth_result(msg, fault=False)
-            logger.info("authenticated by bearer token for host %s" % fqdn)
+            logger.info("authenticated by bearer token for host %s" % hostname)
         else:
             # basic auth needed
             if auth is None:

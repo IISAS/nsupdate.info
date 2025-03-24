@@ -373,6 +373,10 @@ class NicUpdateView(View):
             host = Host.get_by_fqdn(fqdn, created_by=request.user.id)
             if host is None:
                 return json_resp_error('Host not found or unauthorized to update this host: %s' % fqdn, http_status=400)
+            success_msg = 'success'
+            msg = "api authentication %s. [hostname: %s (given in fqdn parameter)]" % (success_msg, fqdn,)
+            host.register_api_auth_result(msg, fault=False)
+            logger.info("authenticated by bearer token for host %s" % fqdn)
         else:
             # basic auth needed
             if auth is None:

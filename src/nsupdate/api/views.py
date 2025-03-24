@@ -360,7 +360,12 @@ class NicUpdateView(View):
         hostname = request.GET.get('hostname')
         if hostname in settings.BAD_HOSTS:
             return Response('abuse', status=403)
-        if hasattr(request, 'user') and request.user is not None and request.user.is_authenticated:
+        auth = request.META.get('HTTP_AUTHORIZATION')
+        if auth is not None \
+            and auth.lower().startswith('bearer ') \
+            and hasattr(request, 'user') \
+            and request.user is not None \
+            and request.user.is_authenticated:
             # user is authenticated with a bearer token
             fqdn = request.GET.get('fqdn', hostname)
             if fqdn is None:

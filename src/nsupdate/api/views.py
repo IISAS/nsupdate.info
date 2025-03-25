@@ -203,16 +203,40 @@ def json_resp_error(message, http_status=502, **kwargs):
     )
 
 
-def add_host(user, remote_addr, name, domain_id, comment, wildcard):
+def register_host(user, remote_addr, name, domain_name, comment, wildcard):
+
+    assert user is not None
+    info = '[username: %s]' % (user.username,)
+
+    # retrieve domain with constraints:
+    #   a) domain is public
+    #   b) domain is owned by the user
+    domain = Domain.objects.filter(
+        Q(name=domain_name) & (Q(created_by=user) | Q(public=True))
+    )
+
+    # check if the domain exists and if it is unique,
+    # because we will need an id of an existing domain
+    # for the CreateHostForm
+    if not domain.exists():
+        msg = 'Domain does not exist'
+        logger.warning(f'{msg} {info}')
+        return json_resp_error('nxdomain', http_status=400)
+    if domain.count() > 1:
+        # should not occur
+        msg = 'Domain name is not unique: %s' % (domain_name,)
+        logger.warning(f'{msg} {info}')
+        return json_resp_error('dnserr', http_status=500)
+
     form = CreateHostForm({
         'name': name,
-        'domain': domain_id,
+        'domain': domain.first().id,
         'wildcard': wildcard,
         'comment': comment
     })
 
     if not form.is_valid():
-        return json_resp_error('Bad request', http_status=400, errors=form.errors)
+        return json_resp_error('formerr', http_status=400, errors=form.errors)
 
     host = form.save(commit=False)
     try:
@@ -246,7 +270,7 @@ def add_host(user, remote_addr, name, domain_id, comment, wildcard):
 
         response = create_json_resp(
             status='ok',
-            message='Host added.',
+            message='Host registered.',
             host=dict(
                 name=host.name,
                 domain=host.domain.name,
@@ -257,12 +281,51 @@ def add_host(user, remote_addr, name, domain_id, comment, wildcard):
                 created_by=host.created_by.username,
                 last_update_ipv4=f'{host.last_update_ipv4.isoformat()}',
                 last_update_ipv6=f'{host.last_update_ipv6.isoformat()}',
-                IPv4_update_url=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV4_HOST}/nic/update',
-                IPv6_update_url=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV6_HOST}/nic/update'
+                IPv4_update_url_basic_auth=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV4_HOST}/nic/update',
+                IPv6_update_url_basic_auth=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV6_HOST}/nic/update',
+                IPv4_update_url_bearer_auth=f'https://{settings.WWW_IPV4_HOST}/nic/update?hostname={host.get_fqdn()}&myip=${{myip}}&wildard=${{wildcard}}',
+                IPv6_update_url_bearer_auth=f'https://{settings.WWW_IPV6_HOST}/nic/update?hostname={host.get_fqdn()}&myip=${{myip}}&wildard=${{wildcard}}'
             )
         )
 
         return response
+
+
+def unregister_host(host, user):
+
+    assert user is not None
+    info = '[username: %s]' % (user.username,)
+
+    if host is None:
+        logger.warning('Host not found: %s [username: %s]' % (host.get_fqdn(), user.username,))
+        return json_resp_error('nohost', http_status=404)
+    if host.created_by != user:
+        logger.warning('Host is not owned by the user [host: %s, username: %s]' % (host.get_fqdn(), user.username,))
+        host.register_client_result('Unauthorized access', fault=True)
+        return json_resp_error('badauth', http_status=401)
+    if host.abuse or host.abuse_blocked:
+        msg = '%s - received unregister for host with abuse / abuse_blocked flag set' % (host.get_fqdn(), )
+        logger.warning(f'{msg} {info}')
+        host.register_client_result(f'{msg} {info}', fault=False)
+        return json_resp_error('abuse', http_status=403)
+    try:
+        host.delete()
+        response = create_json_resp(
+            status='ok',
+            message='Host unregistered.',
+            host=dict(
+                name=host.name,
+                domain=host.domain.name,
+                fqdn=f'{host.get_fqdn()}',
+                wildcard=host.wildcard,
+                comment=host.comment
+            )
+        )
+        return response
+    except Exception as e:
+        msg = 'Error during host unregistration: %s' % (str(e),)
+        logger.exception(f'{msg} {info}')
+        return json_resp_error('dnserr')
 
 
 class NicRegisterView(View):
@@ -283,8 +346,11 @@ class NicRegisterView(View):
           :param request: django request object
           :return: JsonResponse object
         """
-        if not request.user.is_authenticated:
-            return json_resp_error('Unauthorized access', http_status=401)
+        if not hasattr(request, 'user') \
+            or request.user is None \
+            or not request.user.is_authenticated:
+            logger.warning('Unauthorized access')
+            return json_resp_error('badauth', http_status=401)
 
         # read parameters from the request
         if 'fqdn' in request.GET:
@@ -302,29 +368,66 @@ class NicRegisterView(View):
 
         comment = request.GET.get('comment')
 
-        domains = Domain.objects.filter(
-            Q(name=domain) & (Q(created_by=request.user) | Q(public=True))
-        )
-
-        # check if the domain exists and if it is unique,
-        # because we will need an id of an existing domain
-        # for the CreateHostForm
-        if not domains.exists():
-            return json_resp_error('Domain does not exist', http_status=400)
-        if domains.count() > 1:
-            # should not occur
-            return json_resp_error('Domain name is not unique', http_status=500)
-
-        # get the id of the submitted domain
-        domain_id = domains.first().id
-
-        response = add_host(
+        response = register_host(
             user=request.user,
             remote_addr=request.META['REMOTE_ADDR'],
             name=name,
-            domain_id=domain_id,
-            comment=comment, wildcard=wildcard
+            domain_name=domain,
+            comment=comment,
+            wildcard=wildcard
         )
+
+        return response
+
+
+class NicUnregisterView(View):
+    @log.logger(__name__)
+    def get(self, request, logger=None):
+        """
+          API for hostname unregistration
+
+          Examples:
+          curl --request GET \
+            --url https:/nsupdate.fedcloud.eu/nic/unregister?fqdn=${NAME}.${DOMAIN}&wildcard=${WILDCARD} \
+            --header 'Authorization: Bearer $ACCESS_TOKEN'
+
+          curl --request GET \
+            --url https:/nsupdate.fedcloud.eu/nic/unregister?name=${NAME}&domain=${DOMAIN}&wildcard=${WILDCARD} \
+            --header 'Authorization: Bearer $ACCESS_TOKEN'
+
+          :param request: django request object
+          :return: JsonResponse object
+        """
+        if not hasattr(request, 'user') \
+            or request.user is None \
+            or not request.user.is_authenticated:
+            logger.warning('Unauthorized access')
+            return json_resp_error('badauth', http_status=401)
+
+        # read parameters from the request
+        if 'fqdn' in request.GET:
+            fqdn = request.GET.get('fqdn')
+        else:
+            info = '[username: %s]' % (request.user.username,)
+            if 'domain' in request.GET and 'name' not in request.GET:
+                msg = 'Missing parameter: name'
+                logger.warning(f'{msg} {info}')
+                return json_resp_error(msg, http_status=400)
+            elif 'name' in request.GET and 'domain' not in request.GET:
+                msg = 'Missing parameter: domain'
+                logger.warning(f'{msg} {info}')
+                return json_resp_error(msg, http_status=400)
+            elif 'name' not in request.GET and 'domain' not in request.GET:
+                msg = 'Missing parameter: fqdn or name, domain'
+                logger.warning(f'{msg} {info}')
+                return json_resp_error(msg, http_status=400)
+
+            name = request.GET.get('name')
+            domain = request.GET.get('domain')
+            fqdn = FQDN(name, domain)
+
+        host = Host.get_by_fqdn(fqdn)
+        response = unregister_host(host=host, user=request.user)
 
         return response
 
@@ -368,21 +471,18 @@ class NicUpdateView(View):
             and request.user.is_authenticated:
             # user is authenticated with a bearer token
             if hostname is None:
-                msg = 'Missing parameter: hostname'
-                logger.warning(msg)
-                return json_resp_error(msg, http_status=400)
+                logger.warning('Missing parameter: hostname [username: %s]' % (request.user.username, ))
+                return Response('nohost')
             if '.' not in hostname:
-                msg = 'Hostname is not a FQDN: %s' % hostname
-                logger.warning(msg)
-                return json_resp_error(msg, http_status=400)
+                logger.warning('Hostname is not a FQDN: %s [username: %s]' % (hostname, request.user.username,))
+                return Response('notfqdn')
             host = Host.get_by_fqdn(hostname, created_by=request.user.id)
             if host is None:
-                msg = 'Host not found or unauthorized to update host: %s' % hostname
-                logger.warning(msg)
-                return json_resp_error(msg, http_status=400)
-            msg = "api authentication success. [hostname: %s (given in hostname parameter)]" % (hostname,)
+                logger.warning('Host not found or unauthorized to update host: %s [username: %s]' % (hostname, request.user.username,))
+                return Response('nohost')
+            msg = "api authentication success. [hostname: %s (given in hostname parameter), username: %s]" % (hostname, request.user.username,)
             host.register_api_auth_result(msg, fault=False)
-            logger.info("authenticated by bearer token for host %s" % hostname)
+            logger.info("authenticated by bearer token for host %s [username: %s]" % (hostname, request.user.username,))
         else:
             # basic auth needed
             if auth is None:

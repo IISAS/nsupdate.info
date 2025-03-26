@@ -11,7 +11,7 @@ from .views import (
     RelatedHostOverviewView, RelatedHostView, AddRelatedHostView, DeleteRelatedHostView, CustomTemplateView)
 from ..api.views import (
     myip_view, DetectIpView, AjaxGetIps, NicUpdateView, AuthorizedNicUpdateView,
-    NicDeleteView, AuthorizedNicDeleteView, NicRegisterView, NicUnregisterView, NicZonesView)
+    NicDeleteView, AuthorizedNicDeleteView, NicRegisterView, NicUnregisterView, NicDomainsView, NicHostsView)
 
 
 urlpatterns = (
@@ -51,7 +51,8 @@ urlpatterns = (
     re_path(r'^nic/delete$', NicDeleteView.as_view(), name='nic_delete'),  # api extension
     re_path(r'^nic/register$', NicRegisterView.as_view(), name='nic_register'),  # api extension
     re_path(r'^nic/unregister$', NicUnregisterView.as_view(), name='nic_unregister'),  # api extension
-    re_path(r'^nic/zones$', NicZonesView.as_view(), name='nic_zones'),  # api extension
+    re_path(r'^nic/domains$', NicDomainsView.as_view(), name='nic_domains'),  # api extension
+    re_path(r'^nic/hosts$', NicHostsView.as_view(), name='nic_hosts'),  # api extension
     # for bots
     re_path(r'^robots.txt$', RobotsTxtView.as_view(), name='robots'),
 )

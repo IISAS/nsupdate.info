@@ -15,7 +15,8 @@ from netaddr.core import AddrFormatError
 
 from django.http import HttpResponse, JsonResponse
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import F, Q, Value
+from django.db.models.functions import Concat
 from django.views.generic.base import View
 from django.contrib.auth.hashers import check_password
 from django.contrib.auth.decorators import login_required
@@ -328,35 +329,8 @@ def unregister_host(host, user):
         return json_resp_error('dnserr')
 
 
-def list_domains(domains, user=None):
-    zones = []
-    if domains is not None:
-        for domain in domains:
-            zones.append(
-                dict(
-                    name=domain.name,
-                    **(
-                        # fields below are returned only for domain owners
-                        dict(
-                            public=domain.public,
-                            available=domain.available,
-                            nameserver_ip=domain.nameserver_ip,
-                            nameserver2_ip=domain.nameserver2_ip,
-                            nameserver_update_secret=domain.nameserver_update_secret,
-                            nameserver_update_algorithm=domain.nameserver_update_algorithm,
-                            created=f'{domain.created.isoformat()}',
-                            created_by=domain.created_by.username,
-                        ) if user is not None and domain.created_by == user else dict()
-                    ),
-                    comment=domain.comment,
-                    last_update=f'{domain.last_update.isoformat()}',
-                )
-            )
-    response = create_json_resp(
-        status='ok',
-        zones=zones
-    )
-    return response
+def domain_exists(domain):
+    return Domain.objects.filter(name=domain).exists()
 
 
 class NicRegisterView(View):
@@ -463,7 +437,7 @@ class NicUnregisterView(View):
         return response
 
 
-class NicZonesView(View):
+class NicDomainsView(View):
     @log.logger(__name__)
     def get(self, request, logger=None):
         """
@@ -471,7 +445,7 @@ class NicZonesView(View):
 
           Examples:
           curl --request GET \
-            --url https:/nsupdate.fedcloud.eu/nic/zones \
+            --url https:/nsupdate.fedcloud.eu/nic/domains \
             --header 'Authorization: Bearer $ACCESS_TOKEN'
 
           :param request: django request object
@@ -483,23 +457,101 @@ class NicZonesView(View):
             logger.warning('Unauthorized access')
             return json_resp_error('badauth', http_status=401)
 
-        # retrieve domains with constraints:
-        #   a) domain was created by the user
-        #   or
-        #   b) domain is public and available
-        domains = (
-            Domain.objects.
-            filter(
-                Q(created_by=request.user) |
-                (
-                    Q(public=True) &
-                    Q(available=True)
-                )
-            ).
-            order_by('name')
+        private_fields = ['name', 'public', 'available', 'comment', 'created_by__username']
+        private_domains = (
+            Domain.objects.filter(
+                created_by=request.user
+            )
+            .select_related('created_by__profile')
+            .annotate(
+                owner=F('created_by__username'),
+            )
+            .only(*private_fields)
         )
-        response = list_domains(domains, request.user)
 
+        public_fields = ['name', 'public', 'available', 'comment', 'created_by__username']
+        public_domains = (
+            Domain.objects
+            .filter(public=True)
+            .exclude(created_by=request.user)
+            .select_related('created_by')
+            .annotate(
+                owner=F('created_by__username'),
+            )
+            .only(*public_fields)
+            .order_by(F('name'))
+        )
+
+        del public_fields[public_fields.index('created_by__username')]
+        public_fields += ['owner']
+
+        del private_fields[private_fields.index('created_by__username')]
+        private_fields += ['owner']
+
+        response = create_json_resp(
+            status='ok',
+            private=list(private_domains.values(*private_fields)),
+            public=list(public_domains.values(*public_fields))
+        )
+        return response
+
+
+class NicHostsView(View):
+    @log.logger(__name__)
+    def get(self, request, logger=None):
+        """
+          API for hostname unregistration
+
+          Examples:
+          curl --request GET \
+            --url https:/nsupdate.fedcloud.eu/nic/hosts?domain=${DOMAIN} \
+            --header 'Authorization: Bearer $ACCESS_TOKEN'
+
+          :param request: django request object
+          :return: JsonResponse object
+        """
+        if not hasattr(request, 'user') \
+            or request.user is None \
+            or not request.user.is_authenticated:
+            logger.warning('Unauthorized access')
+            return json_resp_error('badauth', http_status=401)
+
+        # to retrieve hosts for a particular domain
+        domain = request.GET.get('domain')
+        if domain is not None:
+            if not domain_exists(domain):
+                msg = 'Domain does not exist'
+                logger.warning(f'{msg} [domain: {domain}]')
+                return json_resp_error(msg, http_status=400)
+
+        # retrieve hosts created by the user
+        fields = ['name', 'comment', 'available', 'client_faults', 'server_faults', 'abuse_blocked', 'abuse',
+                  'last_update_ipv4', 'tls_update_ipv4', 'last_update_ipv6', 'tls_update_ipv6', 'domain__name',
+                  'wildcard']
+        hosts = (
+            Host.objects
+            .filter(Q(created_by=request.user))
+        )
+        if domain is not None:
+            hosts = hosts.filter(
+                Q(domain__name=domain)
+            )
+        hosts = (
+            hosts
+            .select_related('domain')
+            .annotate(
+                domain_name=F('domain__name'),
+                fqdn=Concat(F('name'), Value('.'), F('domain__name'))
+            )
+            .only(*fields)
+        )
+        hosts = hosts.order_by(F('name'))
+        del fields[fields.index('domain__name')]
+        fields = ['fqdn', 'domain_name'] + fields
+        response = create_json_resp(
+            status='ok',
+            hosts=list(hosts.values(*fields))
+        )
         return response
 
 

@@ -328,6 +328,37 @@ def unregister_host(host, user):
         return json_resp_error('dnserr')
 
 
+def list_domains(domains, user=None):
+    zones = []
+    if domains is not None:
+        for domain in domains:
+            zones.append(
+                dict(
+                    name=domain.name,
+                    **(
+                        # fields below are returned only for domain owners
+                        dict(
+                            public=domain.public,
+                            available=domain.available,
+                            nameserver_ip=domain.nameserver_ip,
+                            nameserver2_ip=domain.nameserver2_ip,
+                            nameserver_update_secret=domain.nameserver_update_secret,
+                            nameserver_update_algorithm=domain.nameserver_update_algorithm,
+                            created=f'{domain.created.isoformat()}',
+                            created_by=domain.created_by.username,
+                        ) if user is not None and domain.created_by == user else dict()
+                    ),
+                    comment=domain.comment,
+                    last_update=f'{domain.last_update.isoformat()}',
+                )
+            )
+    response = create_json_resp(
+        status='ok',
+        zones=zones
+    )
+    return response
+
+
 class NicRegisterView(View):
     @log.logger(__name__)
     def get(self, request, logger=None):
@@ -432,6 +463,46 @@ class NicUnregisterView(View):
         return response
 
 
+class NicZonesView(View):
+    @log.logger(__name__)
+    def get(self, request, logger=None):
+        """
+          API for hostname unregistration
+
+          Examples:
+          curl --request GET \
+            --url https:/nsupdate.fedcloud.eu/nic/zones \
+            --header 'Authorization: Bearer $ACCESS_TOKEN'
+
+          :param request: django request object
+          :return: JsonResponse object
+        """
+        if not hasattr(request, 'user') \
+            or request.user is None \
+            or not request.user.is_authenticated:
+            logger.warning('Unauthorized access')
+            return json_resp_error('badauth', http_status=401)
+
+        # retrieve domains with constraints:
+        #   a) domain was created by the user
+        #   or
+        #   b) domain is public and available
+        domains = (
+            Domain.objects.
+            filter(
+                Q(created_by=request.user) |
+                (
+                    Q(public=True) &
+                    Q(available=True)
+                )
+            ).
+            order_by('name')
+        )
+        response = list_domains(domains, request.user)
+
+        return response
+
+
 class NicUpdateView(View):
     @log.logger(__name__)
     def get(self, request, logger=None, delete=False):
@@ -485,10 +556,9 @@ class NicUpdateView(View):
             logger.info("authenticated by bearer token for host %s [username: %s]" % (hostname, request.user.username,))
         else:
             # basic auth needed
-            if auth is None:
-                # logging this at debug level because otherwise it fills our logs...
-                logger.debug('%s - received no auth' % (hostname, ))
-                return basic_challenge("authenticate to update DNS", 'badauth')
+            # logging this at debug level because otherwise it fills our logs...
+            logger.debug('%s - received no auth' % (hostname, ))
+            return basic_challenge("authenticate to update DNS", 'badauth')
             username, password = basic_authenticate(auth)
             if '.' not in username:  # username MUST be the fqdn
                 # specifically point to configuration errors on client side

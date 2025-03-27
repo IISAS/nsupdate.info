@@ -633,9 +633,9 @@ class NicHostsView(View):
                 abuse=host.abuse,
                 last_update_ipv4=host.last_update_ipv4.isoformat() if host.last_update_ipv4 else None,
                 tls_update_ipv4=host.tls_update_ipv4,
+                ipv4=host.get_ipv4(),
                 last_update_ipv6=host.last_update_ipv6.isoformat() if host.last_update_ipv6 else None,
                 tls_update_ipv6=host.tls_update_ipv6,
-                ipv4=host.get_ipv4(),
                 ipv6=host.get_ipv6()
             )
             hosts_json.append(host_json)

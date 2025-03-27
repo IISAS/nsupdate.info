@@ -539,18 +539,35 @@ class NicHostsView(View):
         hosts = (
             hosts
             .select_related('domain')
-            .annotate(
-                domain_name=F('domain__name'),
-                fqdn=Concat(F('name'), Value('.'), F('domain__name'))
-            )
             .only(*fields)
         )
-        hosts = hosts.order_by(F('name'))
-        del fields[fields.index('domain__name')]
-        fields = ['fqdn', 'domain_name'] + fields
+        hosts = hosts.order_by(F('domain__name'), F('name'))
+
+        hosts_json = []
+        for host in hosts:
+            host_json = dict(
+                fqdn=f'{ host.get_fqdn() }',
+                name=host.name,
+                domain=host.domain.name,
+                wildcard=host.wildcard,
+                comment=host.comment,
+                available=host.available,
+                client_faults=host.client_faults,
+                server_faults=host.server_faults,
+                abuse_blocked=host.abuse_blocked,
+                abuse=host.abuse,
+                last_update_ipv4=host.last_update_ipv4.isoformat() if host.last_update_ipv4 else None,
+                tls_update_ipv4=host.tls_update_ipv4,
+                last_update_ipv6=host.last_update_ipv6.isoformat() if host.last_update_ipv6 else None,
+                tls_update_ipv6=host.tls_update_ipv6,
+                ipv4=host.get_ipv4(),
+                ipv6=host.get_ipv6()
+            )
+            hosts_json.append(host_json)
+
         response = create_json_resp(
             status='ok',
-            hosts=list(hosts.values(*fields))
+            hosts=hosts_json
         )
         return response
 

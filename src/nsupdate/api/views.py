@@ -15,8 +15,7 @@ from netaddr.core import AddrFormatError
 
 from django.http import HttpResponse, JsonResponse
 from django.conf import settings
-from django.db.models import F, Q, Value
-from django.db.models.functions import Concat
+from django.db.models import F, Q
 from django.views.generic.base import View
 from django.contrib.auth.hashers import check_password
 from django.contrib.auth.decorators import login_required
@@ -98,7 +97,7 @@ class AjaxGetIps(View):
             ipv6=request.session.get('ipv6', ''),
             ipv6_rdns=request.session.get('ipv6_rdns', ''),
         )
-        logger.debug("ajax_get_ips response: %r" % (response, ))
+        logger.debug("ajax_get_ips response: %r" % (response,))
         return HttpResponse(json.dumps(response), content_type='application/json')
 
 
@@ -111,7 +110,7 @@ def basic_challenge(realm, content='Authorization Required'):
     :return: HttpResponse object
     """
     response = Response(content)
-    response['WWW-Authenticate'] = 'Basic realm="%s"' % (realm, )
+    response['WWW-Authenticate'] = 'Basic realm="%s"' % (realm,)
     response.status_code = 401
     return response
 
@@ -153,18 +152,18 @@ def check_api_auth(username, password, logger=None):
         host = Host.get_by_fqdn(fqdn)
     except ValueError:
         # logging this at debug level because otherwise it fills our logs...
-        logger.debug('%s - received bad credentials (auth username == dyndns hostname not in our hosts DB)' % (fqdn, ))
+        logger.debug('%s - received bad credentials (auth username == dyndns hostname not in our hosts DB)' % (fqdn,))
         return None
     if host is not None:
         ok = check_password(password, host.update_secret)
         success_msg = ('failure', 'success')[ok]
-        msg = "api authentication %s. [hostname: %s (given in basic auth)]" % (success_msg, fqdn, )
+        msg = "api authentication %s. [hostname: %s (given in basic auth)]" % (success_msg, fqdn,)
         host.register_api_auth_result(msg, fault=not ok)
         if ok:
             return host
         # in case this fills our logs and we never see valid credentials, we can just kill
         # the DB entry and this will fail earlier and get logged at debug level, see above.
-        logger.warning('%s - received bad credentials (password does not match)' % (fqdn, ))
+        logger.warning('%s - received bad credentials (password does not match)' % (fqdn,))
     return None
 
 
@@ -205,7 +204,6 @@ def json_resp_error(message, http_status=502, **kwargs):
 
 
 def register_host(user, remote_addr, name, domain_name, comment, wildcard):
-
     assert user is not None
     info = '[username: %s]' % (user.username,)
 
@@ -293,7 +291,6 @@ def register_host(user, remote_addr, name, domain_name, comment, wildcard):
 
 
 def unregister_host(host, user):
-
     assert user is not None
     info = '[username: %s]' % (user.username,)
 
@@ -305,7 +302,7 @@ def unregister_host(host, user):
         host.register_client_result('Unauthorized access', fault=True)
         return json_resp_error('badauth', http_status=401)
     if host.abuse or host.abuse_blocked:
-        msg = '%s - received unregister for host with abuse / abuse_blocked flag set' % (host.get_fqdn(), )
+        msg = '%s - received unregister for host with abuse / abuse_blocked flag set' % (host.get_fqdn(),)
         logger.warning(f'{msg} {info}')
         host.register_client_result(f'{msg} {info}', fault=False)
         return json_resp_error('abuse', http_status=403)
@@ -546,7 +543,7 @@ class NicHostsView(View):
         hosts_json = []
         for host in hosts:
             host_json = dict(
-                fqdn=f'{ host.get_fqdn() }',
+                fqdn=f'{host.get_fqdn()}',
                 name=host.name,
                 domain=host.domain.name,
                 wildcard=host.wildcard,
@@ -568,6 +565,61 @@ class NicHostsView(View):
         response = create_json_resp(
             status='ok',
             hosts=hosts_json
+        )
+        return response
+
+
+class NicGenerateSecretView(View):
+    @log.logger(__name__)
+    def get(self, request, logger=None):
+        """
+          API for hostname unregistration
+
+          Examples:
+          curl --request GET \
+            --url https:/nsupdate.fedcloud.eu/nic/generate_secret?fqdn=${DOMAIN} \
+            --header 'Authorization: Bearer $ACCESS_TOKEN'
+
+          :param request: django request object
+          :return: JsonResponse object
+        """
+        if not hasattr(request, 'user') \
+            or request.user is None \
+            or not request.user.is_authenticated:
+            logger.warning('Unauthorized access')
+            return json_resp_error('badauth', http_status=401)
+
+        # read parameters from the request
+        if 'fqdn' in request.GET:
+            fqdn = request.GET.get('fqdn')
+        else:
+            info = '[username: %s]' % (request.user.username,)
+            if 'domain' in request.GET and 'name' not in request.GET:
+                msg = 'Missing parameter: name'
+                logger.warning(f'{msg} {info}')
+                return json_resp_error(msg, http_status=400)
+            elif 'name' in request.GET and 'domain' not in request.GET:
+                msg = 'Missing parameter: domain'
+                logger.warning(f'{msg} {info}')
+                return json_resp_error(msg, http_status=400)
+            elif 'name' not in request.GET and 'domain' not in request.GET:
+                msg = 'Missing parameter: fqdn or name, domain'
+                logger.warning(f'{msg} {info}')
+                return json_resp_error(msg, http_status=400)
+
+            name = request.GET.get('name')
+            domain = request.GET.get('domain')
+            fqdn = FQDN(name, domain)
+
+        host = Host.get_by_fqdn(fqdn)
+        if host is None:
+            msg = 'Host does not exist'
+            logger.warning(f'{msg} [fqdn: {fqdn}]')
+            return json_resp_error(msg, http_status=400)
+
+        response = create_json_resp(
+            status='ok',
+            secret=host.generate_secret()
         )
         return response
 
@@ -611,7 +663,7 @@ class NicUpdateView(View):
             and request.user.is_authenticated:
             # user is authenticated with a bearer token
             if hostname is None:
-                logger.warning('Missing parameter: hostname [username: %s]' % (request.user.username, ))
+                logger.warning('Missing parameter: hostname [username: %s]' % (request.user.username,))
                 return Response('nohost')
             if '.' not in hostname:
                 logger.warning('Hostname is not a FQDN: %s [username: %s]' % (hostname, request.user.username,))
@@ -625,9 +677,10 @@ class NicUpdateView(View):
             logger.info("authenticated by bearer token for host %s [username: %s]" % (hostname, request.user.username,))
         else:
             # basic auth needed
-            # logging this at debug level because otherwise it fills our logs...
-            logger.debug('%s - received no auth' % (hostname, ))
-            return basic_challenge("authenticate to update DNS", 'badauth')
+            if auth is None:
+                # logging this at debug level because otherwise it fills our logs...
+                logger.debug('%s - received no auth' % (hostname, ))
+                return basic_challenge("authenticate to update DNS", 'badauth')
             username, password = basic_authenticate(auth)
             if '.' not in username:  # username MUST be the fqdn
                 # specifically point to configuration errors on client side
@@ -709,7 +762,7 @@ class AuthorizedNicUpdateView(View):
             return Response('nohost')
         host = check_session_auth(request.user, hostname)
         if host is None:
-            logger.warning('%s - is not owned by user: %s' % (hostname, request.user.username, ))
+            logger.warning('%s - is not owned by user: %s' % (hostname, request.user.username,))
             return Response('nohost')
         logger.info("authenticated by session as user %s, creator of host %s" % (request.user.username, hostname))
         # note: we do not check the user agent here as this is interactive
@@ -751,13 +804,13 @@ def _update_or_delete(host, ipaddr, secure=False, logger=None, _delete=False):
     # checks. it also avoids some code duplication if done here:
     fqdn = host.get_fqdn()
     if host.abuse or host.abuse_blocked:
-        msg = '%s - received %s for host with abuse / abuse_blocked flag set' % (fqdn, mode, )
+        msg = '%s - received %s for host with abuse / abuse_blocked flag set' % (fqdn, mode,)
         logger.warning(msg)
         host.register_client_result(msg, fault=False)
         return Response('abuse')
     if not host.available:
         # not available is like it doesn't exist
-        msg = '%s - received %s for unavailable host' % (fqdn, mode, )
+        msg = '%s - received %s for unavailable host' % (fqdn, mode,)
         logger.warning(msg)
         host.register_client_result(msg, fault=False)
         return Response('nohost')
@@ -850,7 +903,7 @@ def _on_update_success(host, fqdn, kind, ipaddr, secure, logger):
                 if not _delete:
                     logger.info("updating related host %s -> %s" % (rh_fqdn, rh_ipaddr))
                 else:
-                    logger.info("deleting related host %s" % (rh_fqdn, ))
+                    logger.info("deleting related host %s" % (rh_fqdn,))
                 try:
                     if not _delete:
                         update(rh_fqdn, rh_ipaddr)

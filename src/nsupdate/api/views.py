@@ -218,13 +218,13 @@ def register_host(user, remote_addr, name, domain_name, comment, wildcard):
     # because we will need an id of an existing domain
     # for the CreateHostForm
     if not domain.exists():
-        msg = 'Domain does not exist'
+        msg = 'Unknown domain: %s' % (domain_name,)
         logger.warning(f'{msg} {info}')
         return json_resp_error('nxdomain', http_status=400)
     if domain.count() > 1:
         # should not occur
         msg = 'Domain name is not unique: %s' % (domain_name,)
-        logger.warning(f'{msg} {info}')
+        logger.error(f'{msg} {info}')
         return json_resp_error('dnserr', http_status=500)
 
     form = CreateHostForm({
@@ -290,42 +290,6 @@ def register_host(user, remote_addr, name, domain_name, comment, wildcard):
         return response
 
 
-def unregister_host(host, user):
-    assert user is not None
-    info = '[username: %s]' % (user.username,)
-
-    if host is None:
-        logger.warning('Host not found: %s [username: %s]' % (host.get_fqdn(), user.username,))
-        return json_resp_error('nohost', http_status=404)
-    if host.created_by != user:
-        logger.warning('Host is not owned by the user [host: %s, username: %s]' % (host.get_fqdn(), user.username,))
-        host.register_client_result('Unauthorized access', fault=True)
-        return json_resp_error('badauth', http_status=401)
-    if host.abuse or host.abuse_blocked:
-        msg = '%s - received unregister for host with abuse / abuse_blocked flag set' % (host.get_fqdn(),)
-        logger.warning(f'{msg} {info}')
-        host.register_client_result(f'{msg} {info}', fault=False)
-        return json_resp_error('abuse', http_status=403)
-    try:
-        host.delete()
-        response = create_json_resp(
-            status='ok',
-            message='Host unregistered.',
-            host=dict(
-                name=host.name,
-                domain=host.domain.name,
-                fqdn=f'{host.get_fqdn()}',
-                wildcard=host.wildcard,
-                comment=host.comment
-            )
-        )
-        return response
-    except Exception as e:
-        msg = 'Error during host unregistration: %s' % (str(e),)
-        logger.exception(f'{msg} {info}')
-        return json_resp_error('dnserr')
-
-
 def domain_exists(domain):
     return Domain.objects.filter(name=domain).exists()
 
@@ -338,11 +302,11 @@ class NicRegisterView(View):
 
           Examples:
           curl --request GET \
-            --url https:/nsupdate.fedcloud.eu/nic/register?fqdn=${NAME}.${DOMAIN} \
+            --url https:/nsupdate.fedcloud.eu/nic/register?fqdn=${NAME}.${DOMAIN}&ip=${IP}&wildcard=${WILDCARD}&comment=${COMMENT} \
             --header 'Authorization: Bearer $ACCESS_TOKEN'
 
           curl --request GET \
-            --url https:/nsupdate.fedcloud.eu/nic/register?name=${NAME}&domain=${DOMAIN} \
+            --url https:/nsupdate.fedcloud.eu/nic/register?name=${NAME}&domain=${DOMAIN}&ip=${IP}&wildcard=${WILDCARD}&comment=${COMMENT} \
             --header 'Authorization: Bearer $ACCESS_TOKEN'
 
           :param request: django request object
@@ -357,29 +321,114 @@ class NicRegisterView(View):
         # read parameters from the request
         if 'fqdn' in request.GET:
             fqdn = request.GET.get('fqdn')
-            name, domain = fqdn.split('.', 1)
+            name, domain_name = fqdn.split('.', 1)
         else:
             if 'name' not in request.GET:
                 return json_resp_error('Missing parameter: name', http_status=400)
             if 'domain' not in request.GET:
                 return json_resp_error('Missing parameter: domain', http_status=400)
             name = request.GET.get('name')
-            domain = request.GET.get('domain')
+            domain_name = request.GET.get('domain')
+
+        try:
+            ip = request.GET.get('ip', request.META['REMOTE_ADDR'])
+            ip = normalize_ip(ip)
+            ip_rdtype = dnstools.check_ip(ip)
+        except Exception:
+            return json_resp_error('Invalid IP address: %s' % (ip,), http_status=400)
 
         wildcard = request.GET.get('wildcard', 'false').lower() in ['true', '1', 'yes']
-
         comment = request.GET.get('comment')
 
-        response = register_host(
-            user=request.user,
-            remote_addr=request.META['REMOTE_ADDR'],
-            name=name,
-            domain_name=domain,
-            comment=comment,
-            wildcard=wildcard
+        # retrieve domain with constraints:
+        #   a) domain is public
+        #   b) domain is owned by the user
+        domain = Domain.objects.filter(
+            Q(name=domain_name) & (Q(created_by=request.user) | Q(public=True))
         )
 
-        return response
+        # check if the domain exists and if it is unique,
+        # because we will need an id of an existing domain
+        # for the CreateHostForm
+        info = '[username: %s]' % (request.user.username,)
+        if not domain.exists():
+            msg = 'Unknown domain: %s' % (domain_name,)
+            logger.warning(f'{msg} {info}')
+            return json_resp_error('nxdomain', http_status=400)
+        if domain.count() > 1:
+            # should not occur
+            msg = 'Domain name is not unique: %s' % (domain_name,)
+            logger.error(f'{msg} {info}')
+            return json_resp_error('dnserr', http_status=500)
+
+        form = CreateHostForm({
+            'name': name,
+            'domain': domain.first().id,
+            'wildcard': wildcard,
+            'comment': comment
+        })
+
+        if not form.is_valid():
+            return json_resp_error('formerr', http_status=400, errors=form.errors)
+
+        host = form.save(commit=False)
+        try:
+            dnstools.add(host.get_fqdn(), ip)
+            if host.wildcard:
+                dnstools.add(host.get_fqdn_wildcard(), ip)
+        except dnstools.Timeout:
+            return json_resp_error('Timeout - communicating to name server failed.')
+        except dnstools.NameServerNotAvailable:
+            return json_resp_error('Name server unavailable.')
+        except dnstools.NoNameservers:
+            return json_resp_error('Resolving failed: No name servers.')
+        except dnstools.DnsUpdateError as e:
+            return json_resp_error('DNS update error [%s].' % str(e))
+        except Domain.DoesNotExist:
+            # should not happen: POST data had invalid (base)domain
+            return json_resp_error('Base domain does not exist.')
+        except dnstools.SameIpError:
+            return json_resp_error('Host already exists in DNS.')
+        except dnstools.DNSException as e:
+            return json_resp_error('DNSException [%s]' % str(e))
+        except OSError as err:  # was: socket.error (deprecated)
+            return json_resp_error('Communication to name server failed [%s]' % str(err))
+        else:
+            host.created_by = request.user
+            dt_now = now()
+            host.last_update_ipv4 = dt_now
+            host.last_update_ipv6 = dt_now
+            host.save()
+            update_secret = host.generate_secret()
+
+            response = create_json_resp(
+                status='ok',
+                message='Host registered.',
+                host=dict(
+                    fqdn=f'{host.get_fqdn()}',
+                    name=host.name,
+                    domain=host.domain.name,
+                    wildcard=host.wildcard,
+                    comment=host.comment,
+                    available=host.available,
+                    client_faults=host.client_faults,
+                    server_faults=host.server_faults,
+                    abuse_blocked=host.abuse_blocked,
+                    abuse=host.abuse,
+                    last_update_ipv4=f'{host.last_update_ipv4.isoformat()}',
+                    tls_update_ipv4=host.tls_update_ipv4,
+                    ipv4=ip if ip_rdtype == 'ipv4' else None,   # host.get_ipv4() cannot be used because it takes some time to update the DNS record
+                    last_update_ipv6=f'{host.last_update_ipv6.isoformat()}',
+                    tls_update_ipv6=host.tls_update_ipv6,
+                    ipv6=ip if ip_rdtype == 'ipv6' else None,   # same as for ipv4
+                    update_secret=update_secret,
+                    IPv4_update_url_basic_auth=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV4_HOST}/nic/update',
+                    IPv6_update_url_basic_auth=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV6_HOST}/nic/update',
+                    IPv4_update_url_bearer_auth=f'https://{settings.WWW_IPV4_HOST}/nic/update?hostname={host.get_fqdn()}&myip=${{myip}}',
+                    IPv6_update_url_bearer_auth=f'https://{settings.WWW_IPV6_HOST}/nic/update?hostname={host.get_fqdn()}&myip=${{myip}}',
+                )
+            )
+            return response
 
 
 class NicUnregisterView(View):
@@ -406,11 +455,12 @@ class NicUnregisterView(View):
             logger.warning('Unauthorized access')
             return json_resp_error('badauth', http_status=401)
 
+        info = '[username: %s]' % (request.user.username,)
+
         # read parameters from the request
         if 'fqdn' in request.GET:
             fqdn = request.GET.get('fqdn')
         else:
-            info = '[username: %s]' % (request.user.username,)
             if 'domain' in request.GET and 'name' not in request.GET:
                 msg = 'Missing parameter: name'
                 logger.warning(f'{msg} {info}')
@@ -429,9 +479,37 @@ class NicUnregisterView(View):
             fqdn = FQDN(name, domain)
 
         host = Host.get_by_fqdn(fqdn)
-        response = unregister_host(host=host, user=request.user)
 
-        return response
+        if host is None:
+            logger.warning('Host not found: %s [username: %s]' % (fqdn, request.user.username,))
+            return json_resp_error('nohost', http_status=404)
+        if host.created_by != request.user:
+            logger.warning('Host is not owned by the user [host: %s, username: %s]' % (host.get_fqdn(), request.user.username,))
+            host.register_client_result('Unauthorized access', fault=True)
+            return json_resp_error('badauth', http_status=401)
+        if host.abuse or host.abuse_blocked:
+            msg = '%s - received unregister for host with abuse / abuse_blocked flag set' % (host.get_fqdn(),)
+            logger.warning(f'{msg} {info}')
+            host.register_client_result(f'{msg} {info}', fault=False)
+            return json_resp_error('abuse', http_status=403)
+        try:
+            host.delete()
+            response = create_json_resp(
+                status='ok',
+                message='Host unregistered.',
+                host=dict(
+                    fqdn=f'{host.get_fqdn()}',
+                    name=host.name,
+                    domain=host.domain.name,
+                    wildcard=host.wildcard,
+                    comment=host.comment
+                )
+            )
+            return response
+        except Exception as e:
+            msg = 'Error during host unregistration: %s' % (str(e),)
+            logger.exception(f'{msg} {info}')
+            return json_resp_error('dnserr')
 
 
 class NicDomainsView(View):
@@ -514,11 +592,11 @@ class NicHostsView(View):
             return json_resp_error('badauth', http_status=401)
 
         # to retrieve hosts for a particular domain
-        domain = request.GET.get('domain')
-        if domain is not None:
-            if not domain_exists(domain):
-                msg = 'Domain does not exist'
-                logger.warning(f'{msg} [domain: {domain}]')
+        domain_name = request.GET.get('domain')
+        if domain_name is not None:
+            if not domain_exists(domain_name):
+                msg = 'Unknown domain: %s' % (domain_name,)
+                logger.warning(f'{msg} [domain: {domain_name}]')
                 return json_resp_error(msg, http_status=400)
 
         # retrieve hosts created by the user
@@ -529,9 +607,9 @@ class NicHostsView(View):
             Host.objects
             .filter(Q(created_by=request.user))
         )
-        if domain is not None:
+        if domain_name is not None:
             hosts = hosts.filter(
-                Q(domain__name=domain)
+                Q(domain__name=domain_name)
             )
         hosts = (
             hosts

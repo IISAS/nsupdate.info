@@ -476,7 +476,7 @@ class NicUnregisterView(View):
 
             name = request.GET.get('name')
             domain = request.GET.get('domain')
-            fqdn = FQDN(name, domain)
+            fqdn = str(FQDN(name, domain))
 
         host = Host.get_by_fqdn(fqdn)
 

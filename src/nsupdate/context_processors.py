@@ -26,6 +26,7 @@ def add_settings(request):
     context['SERVICE_CONTACT'] = settings.SERVICE_CONTACT  # about view
     context['WE_HAVE_TLS'] = settings.WE_HAVE_TLS
     context['COOKIE_SECURE'] = settings.SESSION_COOKIE_SECURE or settings.CSRF_COOKIE_SECURE
+    context['REGISTRATION_OPEN'] = settings.REGISTRATION_OPEN
     return context
 
 

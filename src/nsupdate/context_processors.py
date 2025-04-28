@@ -26,7 +26,8 @@ def add_settings(request):
     context['SERVICE_CONTACT'] = settings.SERVICE_CONTACT  # about view
     context['WE_HAVE_TLS'] = settings.WE_HAVE_TLS
     context['COOKIE_SECURE'] = settings.SESSION_COOKIE_SECURE or settings.CSRF_COOKIE_SECURE
-    context['REGISTRATION_OPEN'] = settings.REGISTRATION_OPEN
+    context['REGISTRATION_OPEN'] = settings.REGISTRATION_OPEN if hasattr(settings, 'REGISTRATION_OPEN') else True
+    context['LOCAL_ACCOUNT_ALLOWED'] = settings.LOCAL_ACCOUNT_ALLOWED if hasattr(settings, 'LOCAL_ACCOUNT_ALLOWED') else True
     return context
 
 

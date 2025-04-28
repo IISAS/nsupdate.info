@@ -9,3 +9,4 @@ django-extensions
 social-auth-app-django
 requests
 setuptools-scm
+importlib_resources

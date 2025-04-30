@@ -305,7 +305,7 @@ PASSWORD_HASHERS = [
 # python-social-auth settings
 AUTHENTICATION_BACKENDS = (
     'social_core.backends.amazon.AmazonOAuth2',
-    'social_core.backends.bitbucket.BitbucketOAuth',
+    'social_core.backends.bitbucket.BitbucketOAuth2',
     'social_core.backends.disqus.DisqusOAuth2',
     'social_core.backends.dropbox.DropboxOAuth2V2',
     'social_core.backends.github.GithubOAuth2',

@@ -13,6 +13,7 @@ class UserForm(forms.ModelForm):
         widgets = {
             'email': forms.widgets.TextInput(attrs=dict(autofocus=None)),
         }
+
     def __init__(self, *args, **kwargs):
         super(UserForm, self).__init__(*args, **kwargs)
         self.fields['username'].disabled = True

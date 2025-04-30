@@ -10,3 +10,5 @@ wheel
 pylint
 pylint-django
 Sphinx
+psycopg2-binary
+uwsgi

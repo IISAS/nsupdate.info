@@ -203,93 +203,6 @@ def json_resp_error(message, http_status=502, **kwargs):
     )
 
 
-def register_host(user, remote_addr, name, domain_name, comment, wildcard):
-    assert user is not None
-    info = '[username: %s]' % (user.username,)
-
-    # retrieve domain with constraints:
-    #   a) domain is public
-    #   b) domain is owned by the user
-    domain = Domain.objects.filter(
-        Q(name=domain_name) & (Q(created_by=user) | Q(public=True))
-    )
-
-    # check if the domain exists and if it is unique,
-    # because we will need an id of an existing domain
-    # for the CreateHostForm
-    if not domain.exists():
-        msg = 'Unknown domain: %s' % (domain_name,)
-        logger.warning(f'{msg} {info}')
-        return json_resp_error('nxdomain', http_status=400)
-    if domain.count() > 1:
-        # should not occur
-        msg = 'Domain name is not unique: %s' % (domain_name,)
-        logger.error(f'{msg} {info}')
-        return json_resp_error('dnserr', http_status=500)
-
-    form = CreateHostForm({
-        'name': name,
-        'domain': domain.first().id,
-        'wildcard': wildcard,
-        'comment': comment
-    })
-
-    if not form.is_valid():
-        return json_resp_error('formerr', http_status=400, errors=form.errors)
-
-    host = form.save(commit=False)
-    try:
-        dnstools.add(host.get_fqdn(), normalize_ip(remote_addr))
-        if host.wildcard:
-            dnstools.add(host.get_fqdn_wildcard(), normalize_ip(remote_addr))
-    except dnstools.Timeout:
-        return json_resp_error('Timeout - communicating to name server failed.')
-    except dnstools.NameServerNotAvailable:
-        return json_resp_error('Name server unavailable.')
-    except dnstools.NoNameservers:
-        return json_resp_error('Resolving failed: No name servers.')
-    except dnstools.DnsUpdateError as e:
-        return json_resp_error('DNS update error [%s].' % str(e))
-    except Domain.DoesNotExist:
-        # should not happen: POST data had invalid (base)domain
-        return json_resp_error('Base domain does not exist.')
-    except dnstools.SameIpError:
-        return json_resp_error('Host already exists in DNS.')
-    except dnstools.DNSException as e:
-        return json_resp_error('DNSException [%s]' % str(e))
-    except OSError as err:  # was: socket.error (deprecated)
-        return json_resp_error('Communication to name server failed [%s]' % str(err))
-    else:
-        host.created_by = user
-        dt_now = now()
-        host.last_update_ipv4 = dt_now
-        host.last_update_ipv6 = dt_now
-        host.save()
-        update_secret = host.generate_secret()
-
-        response = create_json_resp(
-            status='ok',
-            message='Host registered.',
-            host=dict(
-                name=host.name,
-                domain=host.domain.name,
-                fqdn=f'{host.get_fqdn()}',
-                wildcard=host.wildcard,
-                comment=host.comment,
-                update_secret=update_secret,
-                created_by=host.created_by.username,
-                last_update_ipv4=f'{host.last_update_ipv4.isoformat()}',
-                last_update_ipv6=f'{host.last_update_ipv6.isoformat()}',
-                IPv4_update_url_basic_auth=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV4_HOST}/nic/update',
-                IPv6_update_url_basic_auth=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV6_HOST}/nic/update',
-                IPv4_update_url_bearer_auth=f'https://{settings.WWW_IPV4_HOST}/nic/update?hostname={host.get_fqdn()}&myip=${{myip}}&wildard=${{wildcard}}',
-                IPv6_update_url_bearer_auth=f'https://{settings.WWW_IPV6_HOST}/nic/update?hostname={host.get_fqdn()}&myip=${{myip}}&wildard=${{wildcard}}'
-            )
-        )
-
-        return response
-
-
 def domain_exists(domain):
     return Domain.objects.filter(name=domain).exists()
 
@@ -397,7 +310,7 @@ class NicRegisterView(View):
             host.created_by = request.user
             dt_now = now()
             host.last_update_ipv4 = dt_now
-            host.last_update_ipv6 = dt_now
+            host.last_update_ipv6 = dt_now if settings.WWW_IPV6_HOST else None
             host.save()
             update_secret = host.generate_secret()
 
@@ -418,14 +331,19 @@ class NicRegisterView(View):
                     last_update_ipv4=f'{host.last_update_ipv4.isoformat()}',
                     tls_update_ipv4=host.tls_update_ipv4,
                     ipv4=ip if ip_rdtype == 'ipv4' else None,   # host.get_ipv4() cannot be used because it takes some time to update the DNS record
-                    last_update_ipv6=f'{host.last_update_ipv6.isoformat()}',
+                    last_update_ipv6=f'{host.last_update_ipv6.isoformat()}' if host.last_update_ipv6 else None,
                     tls_update_ipv6=host.tls_update_ipv6,
                     ipv6=ip if ip_rdtype == 'ipv6' else None,   # same as for ipv4
                     update_secret=update_secret,
                     IPv4_update_url_basic_auth=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV4_HOST}/nic/update',
-                    IPv6_update_url_basic_auth=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV6_HOST}/nic/update',
                     IPv4_update_url_bearer_auth=f'https://{settings.WWW_IPV4_HOST}/nic/update?hostname={host.get_fqdn()}&myip=${{myip}}',
-                    IPv6_update_url_bearer_auth=f'https://{settings.WWW_IPV6_HOST}/nic/update?hostname={host.get_fqdn()}&myip=${{myip}}',
+                    **(
+                        dict(
+                            IPv6_update_url_basic_auth=f'https://{host.get_fqdn()}:{update_secret}@{settings.WWW_IPV6_HOST}/nic/update',
+                            IPv6_update_url_bearer_auth=f'https://{settings.WWW_IPV6_HOST}/nic/update?hostname={host.get_fqdn()}&myip=${{myip}}',
+                        )
+                        if settings.WWW_IPV6_HOST else dict()
+                    )
                 )
             )
             return response
@@ -631,10 +549,10 @@ class NicHostsView(View):
                 server_faults=host.server_faults,
                 abuse_blocked=host.abuse_blocked,
                 abuse=host.abuse,
-                last_update_ipv4=host.last_update_ipv4.isoformat() if host.last_update_ipv4 else None,
+                last_update_ipv4=f'{host.last_update_ipv4.isoformat()}' if host.last_update_ipv4 else None,
                 tls_update_ipv4=host.tls_update_ipv4,
                 ipv4=host.get_ipv4(),
-                last_update_ipv6=host.last_update_ipv6.isoformat() if host.last_update_ipv6 else None,
+                last_update_ipv6=f'{host.last_update_ipv6.isoformat()}' if host.last_update_ipv6 else None,
                 tls_update_ipv6=host.tls_update_ipv6,
                 ipv6=host.get_ipv6()
             )

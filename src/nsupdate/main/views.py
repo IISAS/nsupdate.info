@@ -8,6 +8,7 @@ from datetime import timedelta
 
 import dns.name
 
+from django.conf import settings
 from django.db.models import Q
 from django.views.generic import View, TemplateView, CreateView
 from django.views.generic.edit import UpdateView, DeleteView
@@ -248,7 +249,7 @@ class AddHostView(CreateView):
             self.object.created_by = self.request.user
             dt_now = now()
             self.object.last_update_ipv4 = dt_now
-            self.object.last_update_ipv6 = dt_now
+            self.object.last_update_ipv6 = dt_now if settings.WWW_IPV6_HOST else None
             self.object.save()
             success, level, msg = True, messages.SUCCESS, 'Host added.'
         messages.add_message(self.request, level, msg)

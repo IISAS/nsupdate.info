@@ -51,10 +51,12 @@
         <div class="well well-sm">
             <a href="https://{{ host.get_fqdn|default:"&lt;your fqdn&gt;" }}:{{ update_secret|default:"&lt;your secret&gt;" }}@{{ WWW_IPV4_HOST }}/nic/update">https://{{ host.get_fqdn|default:"&lt;your fqdn&gt;" }}:{{ update_secret|default:"&lt;your secret&gt;" }}@{{ WWW_IPV4_HOST }}/nic/update</a>
         </div>
+        {%  if WWW_IPV6_HOST %}
         {% trans "For IPv6 updates:" %}
         <div class="well well-sm">
             <a href="https://{{ host.get_fqdn|default:'&lt;your fqdn&gt;' }}:{{ update_secret|default:'&lt;your secret&gt;' }}@{{ WWW_IPV6_HOST }}/nic/update">https://{{ host.get_fqdn|default:'&lt;your fqdn&gt;' }}:{{ update_secret|default:'&lt;your secret&gt;' }}@{{ WWW_IPV6_HOST }}/nic/update</a>
         </div>
+        {% endif %}
         {% blocktrans trimmed %}
         The IPs will be determined automatically using the remote address our service is seeing
         (see below for more details).
@@ -68,7 +70,9 @@
                 {% trans "Check your current IP:" %}
                 <ul>
                     <li>https://{{ WWW_IPV4_HOST }}/myip  ({% trans "to get your current IPv4 address" %})</li>
-                    <li>https://{{ WWW_IPV6_HOST }}/myip  ({% trans "to get your current IPv6 address" %})</li>
+                    {% if WWW_IPV6_HOST %}
+                        <li>https://{{ WWW_IPV6_HOST }}/myip  ({% trans "to get your current IPv6 address" %})</li>
+                    {% endif %}
                     <li>https://{{ WWW_HOST }}/myip  ({% trans "to get your current IPv4 or IPv6 address" %})</li>
                 </ul>
                 {% trans "Important: Do not send an update if your IP did not change since last update!" %}
@@ -82,7 +86,9 @@
             <li>{% trans "Send a http GET request to:" %}
                 <ul>
                     <li>https://{{ WWW_IPV4_HOST }}/nic/update  {% trans "(to update IPv4 A record in DNS)" %}</li>
-                    <li>https://{{ WWW_IPV6_HOST }}/nic/update  {% trans "(to update IPv6 AAAA record in DNS)" %}</li>
+                    {% if WWW_IPV6_HOST %}
+                        <li>https://{{ WWW_IPV6_HOST }}/nic/update  {% trans "(to update IPv6 AAAA record in DNS)" %}</li>
+                    {% endif %}
                 </ul>
             </li>
             <li>{% trans "Optionally, we support some URL arguments:" %}

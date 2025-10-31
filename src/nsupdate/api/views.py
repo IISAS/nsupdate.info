@@ -357,11 +357,11 @@ class NicUnregisterView(View):
 
           Examples:
           curl --request GET \
-            --url https:/nsupdate.fedcloud.eu/nic/unregister?fqdn=${NAME}.${DOMAIN}&wildcard=${WILDCARD} \
+            --url https:/nsupdate.fedcloud.eu/nic/unregister?fqdn=${NAME}.${DOMAIN} \
             --header 'Authorization: Bearer $ACCESS_TOKEN'
 
           curl --request GET \
-            --url https:/nsupdate.fedcloud.eu/nic/unregister?name=${NAME}&domain=${DOMAIN}&wildcard=${WILDCARD} \
+            --url https:/nsupdate.fedcloud.eu/nic/unregister?name=${NAME}&domain=${DOMAIN} \
             --header 'Authorization: Bearer $ACCESS_TOKEN'
 
           :param request: django request object

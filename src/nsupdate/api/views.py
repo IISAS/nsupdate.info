@@ -22,6 +22,11 @@ from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 from django.utils.timezone import now
 
+from drf_spectacular.utils import extend_schema
+
+from rest_framework import permissions, viewsets
+from rest_framework.decorators import action
+
 from ..utils import log, ddns_client
 from ..main import dnstools
 from ..main.models import Domain, Host
@@ -30,6 +35,7 @@ from ..main.dnstools import (FQDN, update, delete, check_ip, put_ip_into_session
                              SameIpError, DnsUpdateError, NameServerNotAvailable)
 from ..main.iptools import normalize_ip
 
+from .serializers import HostSerializer
 
 def Response(content, status=200):
     """
@@ -488,6 +494,31 @@ class NicDomainsView(View):
         )
         return response
 
+class HostsViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint that allows hosts to be viewed or edited.
+    """
+
+    serializer_class = HostSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+      """
+      Restrict hosts to those belonging to domains owned by the logged-in user.
+      """
+      user = self.request.user
+      return Host.objects.filter(Q(created_by=user))
+
+    # @extend_schema(
+    #     summary="List all hosts for a specific domain",
+    #     description="Returns a list of all Host objects that belong to the given Domain ID.",
+    #     responses={200: HostSerializer(many=True)},
+    # )
+    # @action(detail=False, methods=['get'], url_path=r'by-domain/(?P<domain_name>\d+)')
+    # def list_by_domain(self, request, domain_name=None):
+    #     queryset = self.get_queryset().filter(Q(domain__name=domain_name))
+    #     serializer = self.get_serializer(queryset, many=True)
+    #     return Response(serializer.data)
 
 class NicHostsView(View):
     @log.logger(__name__)

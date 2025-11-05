@@ -50,8 +50,7 @@ BAD_AGENTS = set([])  # list can have str elements
 
 # these IPAdresses and/or IPNetworks are unacceptable for /nic/update service
 # like e.g. IPs of servers related to illegal activities
-from netaddr import IPSet
-
+from netaddr import IPSet, IPAddress, IPNetwork
 BAD_IPS_HOST = IPSet([])  # inner list can have IPAddress and IPNetwork elements
 
 # when encountering these hostnames (fqdn), block them early/silently from
@@ -182,8 +181,6 @@ ROOT_URLCONF = 'nsupdate.urls'
 WSGI_APPLICATION = 'nsupdate.wsgi.application'
 
 INSTALLED_APPS = (
-    'bootstrapform',
-    'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -191,17 +188,16 @@ INSTALLED_APPS = (
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.humanize',
-    'django_extensions',
-    'drf_spectacular',
-    'drf_spectacular_sidecar',
+    'social_django',
     'nsupdate.login',
     'nsupdate',
     'nsupdate.accounts',
     'nsupdate.api',
     'nsupdate.main',
+    'bootstrapform',
+    'django.contrib.admin',
     'registration',
-    'rest_framework',
-    'social_django',
+    'django_extensions',
 )
 
 # A sample logging configuration.
@@ -450,29 +446,3 @@ LANGUAGES = (
 
 # silences 1_6.W001 warning you get without this:
 TEST_RUNNER = 'django.test.runner.DiscoverRunner'
-
-REST_FRAMEWORK = {
-  'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-  'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-  'PAGE_SIZE': 10,
-}
-
-SPECTACULAR_SETTINGS = {
-  'TITLE': 'Dynamic DNS API',
-  'DESCRIPTION': 'Schema for Dynamic DNS API',
-  'VERSION': '1.0.0',
-  'SERVE_INCLUDE_SCHEMA': False,
-
-  'COMPONENT_SPLIT_REQUEST': True,
-  'SECURITY': [{'bearerAuth': []}],
-  'COMPONENTS': {
-    'securitySchemes': {
-      'bearerAuth': {
-        'type': 'http',
-        'scheme': 'bearer',
-        'bearerFormat': 'JWT',
-        'description': 'Use your Bearer token: "Bearer <token>"',
-      },
-    },
-  },
-}

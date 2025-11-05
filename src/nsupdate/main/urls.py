@@ -2,8 +2,7 @@
 main app url dispatching
 """
 
-from django.urls import include, path, re_path
-from rest_framework import routers
+from django.urls import re_path
 
 from .views import (
     HomeView, OverviewView, HostView, AddHostView, DeleteHostView, AboutView, GenerateSecretView, GenerateNSSecretView,
@@ -14,16 +13,9 @@ from ..api.views import (
     myip_view, DetectIpView, AjaxGetIps, NicUpdateView, AuthorizedNicUpdateView,
     NicDeleteView, AuthorizedNicDeleteView, NicRegisterView, NicUnregisterView, NicDomainsView, NicHostsView,
     NicGenerateSecretView)
-# OpenAPI
-from ..api.views import (HostsViewSet)
 
-#OpenAPI
-openAPIrouter = routers.DefaultRouter()
-openAPIrouter.register(r'hosts', HostsViewSet, basename='hosts')
 
 urlpatterns = (
-    # OpenAPI
-    path(r'api/', include(openAPIrouter.urls)),
     # interactive web ui
     re_path(r'^$', HomeView.as_view(), name="home"),
     re_path(r'^about/$', AboutView.as_view(), name="about"),

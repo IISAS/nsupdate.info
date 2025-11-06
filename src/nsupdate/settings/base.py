@@ -143,14 +143,14 @@ TEMPLATES = [
                 'django.template.context_processors.i18n',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
+                'social_django.context_processors.backends',
+                'social_django.context_processors.login_redirect',
                 'nsupdate.context_processors.add_settings',
                 'nsupdate.context_processors.update_ips',
                 # 'django.template.context_processors.media',
                 # 'django.template.context_processors.static',
                 # 'django.template.context_processors.tz',
                 'django.contrib.messages.context_processors.messages',
-                'social_django.context_processors.backends',
-                'social_django.context_processors.login_redirect',
 
             ],
             'loaders': [

@@ -1,3 +1,6 @@
+import re
+
+from django.conf import settings
 from django.contrib.auth import get_backends
 from social_core.backends.oauth import BaseOAuth2
 from social_django.models import UserSocialAuth
@@ -22,31 +25,35 @@ def bearer_challenge(realm, content='Authorization Required'):
 class BearerTokenMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
+        self.protected_paths = [
+            re.compile(path) for path in getattr(settings, 'SOCIAL_AUTH_PROTECTED_PATHS', [r'^/nic/'])
+        ]
 
     def __call__(self, request):
-        # Attempt to extract and validate Bearer token from the Authorization header.
-        auth_header = request.META.get('HTTP_AUTHORIZATION')
-        if auth_header and auth_header.lower().startswith('bearer '):
-            access_token = auth_header.split(' ')[1]
-            if not access_token or access_token == '':
-                bearer_challenge("authenticate to update DNS", 'badauth')
-            is_authenticated = False
-            for backend in get_backends():
-                if isinstance(backend, BaseOAuth2):
-                    try:
-                        user_data = backend.user_data(access_token)
-                        social_auth = UserSocialAuth.objects.get(
-                            provider=backend.name,
-                            uid=user_data.get(backend.ID_KEY)
-                        )
-                        user = social_auth.user
-                        request.user = user
-                        is_authenticated = user.is_authenticated
-                        break
-                    except Exception as e:
-                        pass
-            if not is_authenticated:
-                return bearer_challenge("authenticate to update DNS", 'badauth')
+        if any(p.match(request.path_info) for p in self.protected_paths):
+            # Attempt to extract and validate Bearer token from the Authorization header.
+            auth_header = request.META.get('HTTP_AUTHORIZATION')
+            if auth_header and auth_header.lower().startswith('bearer '):
+                access_token = auth_header.split(' ')[1]
+                if not access_token or access_token == '':
+                    bearer_challenge("authenticate to update DNS", 'badauth')
+                is_authenticated = False
+                for backend in get_backends():
+                    if isinstance(backend, BaseOAuth2):
+                        try:
+                            user_data = backend.user_data(access_token)
+                            social_auth = UserSocialAuth.objects.get(
+                                provider=backend.name,
+                                uid=user_data.get(backend.ID_KEY)
+                            )
+                            user = social_auth.user
+                            request.user = user
+                            is_authenticated = user.is_authenticated
+                            break
+                        except Exception as e:
+                            pass
+                if not is_authenticated:
+                    return bearer_challenge("authenticate to update DNS", 'badauth')
         # Proceed with the request processing.
         response = self.get_response(request)
         return response

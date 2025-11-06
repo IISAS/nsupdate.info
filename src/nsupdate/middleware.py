@@ -14,7 +14,7 @@ def bearer_challenge(realm, content='Authorization Required'):
     :return: HttpResponse object
     """
     response = Response(content)
-    response['WWW-Authenticate'] = 'Bearer realm="%s"' % (realm, )
+    response['WWW-Authenticate'] = 'Bearer realm="%s"' % (realm,)
     response.status_code = 401
     return response
 

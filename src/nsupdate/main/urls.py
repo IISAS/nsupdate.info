@@ -8,12 +8,12 @@ from .views import (
     HomeView, OverviewView, HostView, AddHostView, DeleteHostView, AboutView, GenerateSecretView, GenerateNSSecretView,
     RobotsTxtView, DomainView, AddDomainView, DeleteDomainView, StatusView, JsUpdateView,
     UpdaterHostConfigOverviewView, UpdaterHostConfigView, DeleteUpdaterHostConfigView,
-    RelatedHostOverviewView, RelatedHostView, AddRelatedHostView, DeleteRelatedHostView, CustomTemplateView)
+    RelatedHostOverviewView, RelatedHostView, AddRelatedHostView, DeleteRelatedHostView, HostCertificateView,
+    HostDownloadCertificateView, CustomTemplateView, HostUploadCsrView)
 from ..api.views import (
     myip_view, DetectIpView, AjaxGetIps, NicUpdateView, AuthorizedNicUpdateView,
     NicDeleteView, AuthorizedNicDeleteView, NicRegisterView, NicUnregisterView, NicDomainsView, NicHostsView,
     NicGenerateSecretView)
-
 
 urlpatterns = (
     # interactive web ui
@@ -33,6 +33,10 @@ urlpatterns = (
     re_path(r'^host/(?P<mpk>\d+)/related/add/$', AddRelatedHostView.as_view(), name='add_related_host'),
     re_path(r'^host/(?P<mpk>\d+)/related/(?P<pk>\d+)/delete/$', DeleteRelatedHostView.as_view(),
             name='delete_related_host'),
+    re_path(r'^host/(?P<pk>\d+)/certificate/$', HostCertificateView.as_view(), name='host_certificate'),
+    re_path(r'^host/(?P<pk>\d+)/certificate/csr', HostUploadCsrView.as_view(), name='host_upload_csr'),
+    re_path(r'^host/(?P<host_id>\d+)/certificate/download$', HostDownloadCertificateView.as_view(),
+            name='host_certificate_download'),
     re_path(r'^domain/(?P<pk>\d+)/$', DomainView.as_view(), name='domain_view'),
     re_path(r'^domain/add/$', AddDomainView.as_view(), name='add_domain'),
     re_path(r'^domain/(?P<pk>\d+)/delete/$', DeleteDomainView.as_view(), name='delete_domain'),
@@ -55,6 +59,8 @@ urlpatterns = (
     re_path(r'^nic/domains$', NicDomainsView.as_view(), name='nic_domains'),  # api extension
     re_path(r'^nic/hosts$', NicHostsView.as_view(), name='nic_hosts'),  # api extension
     re_path(r'^nic/generate_secret$', NicGenerateSecretView.as_view(), name='nic_generate_secret'),  # api extension
+    # OpenAPI
+    re_path(r'^api/', include('nsupdate.openapi.urls')),
     # for bots
     re_path(r'^robots.txt$', RobotsTxtView.as_view(), name='robots'),
 )

@@ -6,6 +6,7 @@ import re
 import secrets
 import time
 import base64
+from typing import Tuple
 
 import dns.resolver
 import dns.message
@@ -21,6 +22,7 @@ from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
 from . import dnstools
+from ..utils.cert import parse_csr
 
 RESULT_MSG_LEN = 255
 
@@ -258,6 +260,56 @@ class Host(models.Model):
     created = models.DateTimeField(_("created at"), auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='hosts', verbose_name=_("created by"),
                                    on_delete=models.CASCADE)
+    # stores CSR content
+    csr = models.TextField(blank=True, null=True)
+    # stores signed certificate
+    ssl_certificate = models.TextField(blank=True, null=True)
+
+    def validate_csr(self, csr_pem: str) -> Tuple[bool, str]:
+        """
+        Validate whether the given CSR matches this host's FQDN.
+
+        Returns:
+            (is_valid, message)
+        """
+        host_fqdn = str(self.get_fqdn())
+
+        csr_info = parse_csr(csr_pem)
+        csr_cn = csr_info.get("common_name")
+        csr_sans = csr_info.get("sans", [])
+        csr_is_wildcard = csr_info.get("is_wildcard", False)
+
+        # --- Missing CN in CSR ---
+        if not csr_cn:
+            return False, "CSR is missing a Common Name (CN)."
+
+        # --- CN in CSR does not match FQDN of the host ---
+        if csr_cn != host_fqdn:
+            return False, "Common Name (CN) in CSR does not match FQDN of the host."
+
+        allowed_sans = [
+            host_fqdn,
+            f'*.{host_fqdn}'
+        ]
+        for csr_san in csr_sans:
+            if csr_san not in allowed_sans:
+                return False, f"CRS includes unallowed SAN."
+
+        if self.wildcard:
+            if csr_is_wildcard:
+                if f'*.{host_fqdn}' not in csr_sans:
+                    # --- wildcard does not match *.host.domain ---
+                    return False, f"CRS SAN list does not include '*.{host_fqdn}'."
+            else:
+                # --- missing wildcard in CSR ---
+                return False, "CSR is missing wildcard."
+        else:
+            if csr_is_wildcard:
+                # --- host not having wildcard but CSR declares it ---
+                return False, "CSR contains wildcard, but the host does not allow it."
+
+        # --- CSR is valid for signing ---
+        return (True, "CSR is valid")
 
     def __str__(self):
         return u"%s.%s" % (self.name, self.domain.name)

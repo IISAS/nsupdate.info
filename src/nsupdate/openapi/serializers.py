@@ -1,0 +1,70 @@
+from rest_framework import serializers
+
+from nsupdate.main.forms import CreateDomainForm
+from nsupdate.main.models import Host, Domain
+
+
+class DomainSerializer(serializers.HyperlinkedModelSerializer):
+    owner = serializers.CharField(source='created_by.username', read_only=True)
+
+    class Meta:
+        model = Domain
+        fields = [
+            'url',
+            'name',
+            'owner',
+            'public',
+            'available',
+            'comment',
+            'created',
+            'last_update',
+        ]
+        extra_kwargs = {
+            'url': {
+                'view_name': 'domain-detail',
+                'lookup_field': 'name'
+            }
+        }
+
+
+class DomainCreateSerializer(serializers.HyperlinkedModelSerializer):
+    class Meta:
+        model = Domain
+        fields = CreateDomainForm.Meta.fields
+
+
+
+class HostSerializer(serializers.HyperlinkedModelSerializer):
+    domain_name = serializers.CharField(source='domain.name', read_only=True)
+    fqdn = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Host
+        fields = [
+            'url',
+            'fqdn',
+            'name',
+            'domain_name',
+            'wildcard',
+            'comment',
+            'available',
+            'client_faults',
+            'server_faults',
+            'abuse_blocked',
+            'abuse',
+            'created',
+            'last_update_ipv4',
+            'tls_update_ipv4',
+            'last_update_ipv6',
+            'tls_update_ipv6',
+        ]
+        extra_kwargs = {
+            'url': {
+                'view_name': 'host-detail',
+                'lookup_field': 'name',
+                'lookup_url_kwarg': 'fqdn'
+            }
+        }
+
+    def get_fqdn(self, obj) -> str:
+        return f'{obj.get_fqdn()}'

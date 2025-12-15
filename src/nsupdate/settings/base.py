@@ -50,7 +50,8 @@ BAD_AGENTS = set([])  # list can have str elements
 
 # these IPAdresses and/or IPNetworks are unacceptable for /nic/update service
 # like e.g. IPs of servers related to illegal activities
-from netaddr import IPSet, IPAddress, IPNetwork
+from netaddr import IPSet
+
 BAD_IPS_HOST = IPSet([])  # inner list can have IPAddress and IPNetwork elements
 
 # when encountering these hostnames (fqdn), block them early/silently from
@@ -198,6 +199,11 @@ INSTALLED_APPS = (
     'django.contrib.admin',
     'registration',
     'django_extensions',
+    'django_filters',
+    'rest_framework',
+    'drf_spectacular',
+    'drf_spectacular_sidecar',
+    'nsupdate.auth.drf_social_oauth2.SocialOauth2AppConfig',
 )
 
 # A sample logging configuration.
@@ -316,6 +322,11 @@ AUTHENTICATION_BACKENDS = (
     'social_core.backends.twitter.TwitterOAuth',
     'django.contrib.auth.backends.ModelBackend',
 )
+
+SOCIAL_AUTH_ISSUER_BACKEND_MAP = {
+    'https://aai.egi.eu/oidc': 'egi',
+    'https://aai-dev.egi.eu/auth/realms/egi': 'egi',
+}
 
 SOCIAL_AUTH_LOGIN_REDIRECT_URL = '/'
 #    Used to redirect the user once the auth process ended successfully.
@@ -446,3 +457,40 @@ LANGUAGES = (
 
 # silences 1_6.W001 warning you get without this:
 TEST_RUNNER = 'django.test.runner.DiscoverRunner'
+
+ACME_DIRECTORY_URL = os.getenv('DJANGO_ACME_DIRECTORY_URL')
+EAB_KID = os.getenv('DJANGO_EAB_KID')
+EAB_HMAC_KEY = os.getenv('DJANGO_EAB_HMAC_KEY')
+
+REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'nsupdate.auth.drf_social_oauth2.authentication.SocialOAuth2Authentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    ],
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 10,
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Dynamic DNS API',
+    'DESCRIPTION': 'Schema for Dynamic DNS API',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SECURITY': [{'SocialOAuth2Auth': []}],
+    'SWAGGER_UI_SETTINGS': {
+        'persistAuthorization': True,
+    },
+}

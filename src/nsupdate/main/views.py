@@ -2,32 +2,32 @@
 """
 views for the interactive web user interface
 """
-
-import socket
 from datetime import timedelta
 
 import dns.name
-
 from django.conf import settings
-from django.db.models import Q
-from django.views.generic import View, TemplateView, CreateView
-from django.views.generic.edit import UpdateView, DeleteView
-from django.http import HttpResponse, HttpResponseRedirect
-from django.contrib.auth.decorators import login_required
-from django.contrib.auth import get_user_model
 from django.contrib import messages
+from django.contrib.auth import get_user_model
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Q
+from django.views.generic import View, TemplateView, CreateView, DetailView
+from django.views.generic.edit import UpdateView, DeleteView
+from django.http import Http404, HttpResponse, HttpResponseRedirect
+from django.shortcuts import redirect, get_object_or_404
 from django.utils.decorators import method_decorator
 from django.urls import reverse
-from django.http import Http404
 from django import template
+from django.utils import timezone
 from django.utils.timezone import now
 
 from . import dnstools
 from .iptools import normalize_ip
 
 from .forms import (CreateHostForm, EditHostForm, CreateRelatedHostForm, EditRelatedHostForm,
-                    CreateDomainForm, EditDomainForm, CreateUpdaterHostConfigForm, EditUpdaterHostConfigForm)
+                    CreateDomainForm, EditDomainForm, CreateUpdaterHostConfigForm, EditUpdaterHostConfigForm, HostCsrUploadForm)
 from .models import Host, RelatedHost, Domain, ServiceUpdaterHostConfig
+from ..utils.cert import issue_certificate, parse_certificate
 
 
 class GenerateSecretView(UpdateView):
@@ -657,3 +657,114 @@ you found an issue in the code (then please file an issue for this and tell how 
 """ % dict(reason=reason)
         status = 403
     return HttpResponse(content, status=status, content_type="text/plain")
+
+
+class HostUploadCsrView(UpdateView):
+    model = Host
+    template_name = "main/host_upload_csr.html"
+    form_class = HostCsrUploadForm
+
+    @method_decorator(login_required)
+    def dispatch(self, request, *args, **kwargs):
+        return super(HostUploadCsrView, self).dispatch(request, *args, **kwargs)
+
+    def get_error_url(self):
+        return reverse("host_upload_csr", kwargs={"pk": self.object.pk})
+
+    def get_success_url(self):
+        return reverse("host_certificate", kwargs={"pk": self.object.pk})
+
+    def form_valid(self, form):
+
+        csr = form.cleaned_data['csr']
+        csr_is_valid, csr_validation_message = self.object.validate_csr(csr)
+
+        if not csr_is_valid:
+            messages.error(self.request, csr_validation_message)
+            return redirect(self.get_error_url())
+
+        # save the CSR to the host model and issue a certificate
+        messages.success(self.request, "CSR accepted.")
+        self.object.csr = csr
+        self.object = form.save()
+        if self.object.csr is not None:
+            # issue a certificate for the host
+            result = issue_certificate(self.object.csr)
+            if result['status'] == 'OK':
+                self.object.ssl_certificate = result['certs']['fullchain.pem']
+                self.object.save()
+            for msg in result['messages']:
+                messages.add_message(self.request, *msg)
+
+        return redirect(self.get_success_url())
+
+    def get_object(self, *args, **kwargs):
+        obj = super(HostUploadCsrView, self).get_object(*args, **kwargs)
+        if obj.created_by != self.request.user:
+            raise Http404
+        return obj
+
+
+class HostCertificateView(DetailView):
+    model = Host
+    template_name = "main/host_certificate.html"
+
+    @method_decorator(login_required)
+    def dispatch(self, request, *args, **kwargs):
+
+        obj = self.get_object()
+
+        if obj.ssl_certificate is None:
+            return redirect("host_upload_csr", pk=obj.id)
+
+        return super(HostCertificateView, self).dispatch(request, *args, **kwargs)
+
+    def get_object(self, *args, **kwargs):
+        obj = super(HostCertificateView, self).get_object(*args, **kwargs)
+        if obj.created_by != self.request.user:
+            raise Http404
+        return obj
+
+    def get_context_data(self, **kwargs):
+        """Add the host to the template context."""
+        context = super(HostCertificateView, self).get_context_data(**kwargs)
+
+        if self.object.ssl_certificate:
+            # certificate was already issued
+            context['cert'] = parse_certificate(self.object.ssl_certificate)
+            now = timezone.now()
+            context['now'] = now
+            not_after = context['cert']['not_after']
+            if timezone.is_naive(not_after):
+                not_after = timezone.make_aware(not_after)
+            context['cert_days_to_expire'] = (not_after - now).days
+
+        return context
+
+
+class HostDownloadCertificateView(LoginRequiredMixin, View):
+
+    def get(self, request, host_id):
+        host = get_object_or_404(Host, pk=host_id, created_by=self.request.user)
+
+        if not host.ssl_certificate:
+            return HttpResponse(
+                "No certificate available for this host.",
+                status=404,
+                content_type="text/plain",
+            )
+
+        cert_content = host.ssl_certificate
+
+        # Ensure bytes, convert if stored as text
+        if isinstance(cert_content, str):
+            cert_content = cert_content.encode("utf-8")
+
+        filename = f"{host.get_fqdn()}.pem"
+
+        response = HttpResponse(
+            cert_content,
+            content_type="application/x-pem-file",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response

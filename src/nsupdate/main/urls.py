@@ -2,7 +2,7 @@
 main app url dispatching
 """
 
-from django.urls import re_path
+from django.urls import include, re_path
 
 from .views import (
     HomeView, OverviewView, HostView, AddHostView, DeleteHostView, AboutView, GenerateSecretView, GenerateNSSecretView,

@@ -1,7 +1,6 @@
 import os
 import subprocess
 import tempfile
-from typing import Tuple
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -157,50 +156,3 @@ def issue_certificate(
                 ],
             )
     return result
-
-
-def validate_csr(self, csr_pem: str) -> Tuple[bool, str]:
-    """
-    Validate whether the given CSR matches this host's FQDN.
-
-    Returns:
-        (is_valid, message)
-    """
-
-    fqdn = self.get_fqdn()
-    csr_info = parse_csr(csr_pem)
-
-    cn = csr_info.get("common_name")
-    sans = csr_info.get("sans", [])
-    is_wildcard = csr_info.get("is_wildcard", False)
-
-    # --- Missing CN ---
-    if not cn:
-        return False, "CSR is missing a Common Name (CN)."
-
-    # --- Exact CN match ---
-    if cn == fqdn:
-        return True, "CSR CN matches host FQDN."
-
-    # --- SAN match ---
-    if fqdn in sans:
-        return True, "CSR SAN list contains the host FQDN."
-
-    # --- Wildcard match ---
-    if is_wildcard:
-        # remove "*."
-        zone = cn[2:]
-        if fqdn.endswith(zone):
-            return True, "CSR wildcard CN covers the host FQDN."
-        else:
-            return (
-                False,
-                f"Wildcard CN '{cn}' does not cover host '{fqdn}'.",
-            )
-
-    # --- No match ---
-    return (
-        False,
-        f"CSR CN '{cn}' does not match host '{fqdn}', "
-        "and no SAN entry matches either.",
-    )

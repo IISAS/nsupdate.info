@@ -274,18 +274,22 @@ class Host(models.Model):
         """
         host_fqdn = str(self.get_fqdn())
 
-        csr_info = parse_csr(csr_pem)
+        try:
+            csr_info = parse_csr(csr_pem)
+        except Exception as e:
+            return (False, str(e))
+
         csr_cn = csr_info.get("common_name")
         csr_sans = csr_info.get("sans", [])
         csr_is_wildcard = csr_info.get("is_wildcard", False)
 
         # --- Missing CN in CSR ---
         if not csr_cn:
-            return False, "CSR is missing a Common Name (CN)."
+            return (False, "CSR is missing a Common Name (CN).")
 
         # --- CN in CSR does not match FQDN of the host ---
         if csr_cn != host_fqdn:
-            return False, "Common Name (CN) in CSR does not match FQDN of the host."
+            return (False, "Common Name (CN) in CSR does not match FQDN of the host.")
 
         allowed_sans = [
             host_fqdn,
@@ -293,20 +297,20 @@ class Host(models.Model):
         ]
         for csr_san in csr_sans:
             if csr_san not in allowed_sans:
-                return False, f"CRS includes unallowed SAN."
+                return (False, f"CRS includes unallowed SAN.")
 
         if self.wildcard:
             if csr_is_wildcard:
                 if f'*.{host_fqdn}' not in csr_sans:
                     # --- wildcard does not match *.host.domain ---
-                    return False, f"CRS SAN list does not include '*.{host_fqdn}'."
+                    return (False, f"CRS SAN list does not include '*.{host_fqdn}'.")
             else:
                 # --- missing wildcard in CSR ---
-                return False, "CSR is missing wildcard."
+                return (False, "CSR is missing wildcard.")
         else:
             if csr_is_wildcard:
                 # --- host not having wildcard but CSR declares it ---
-                return False, "CSR contains wildcard, but the host does not allow it."
+                return (False, "CSR contains wildcard, but the host does not allow it.")
 
         # --- CSR is valid for signing ---
         return (True, "CSR is valid")

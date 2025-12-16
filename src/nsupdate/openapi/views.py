@@ -8,7 +8,7 @@ from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
 )
-from rest_framework import filters, mixins, permissions, viewsets
+from rest_framework import filters, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -20,7 +20,10 @@ from .serializers import (
     DomainSerializer,
     DomainCreateSerializer,
     HostSerializer,
+    CSRTextUploadSerializer,
+    CSRFileUploadSerializer,
 )
+from ..utils.cert import issue_certificate
 
 
 class DomainsViewSet(
@@ -171,7 +174,7 @@ class HostsViewSet(viewsets.ModelViewSet):
     ordering_fields = ["name", "domain__name", "created_at"]
     ordering = ['name']
 
-    http_method_names = ['get']
+    http_method_names = ['get', 'post']
 
     def get_object(self):
         fqdn = self.kwargs['fqdn']
@@ -200,6 +203,13 @@ class HostsViewSet(viewsets.ModelViewSet):
                 'domain',
             )
             .annotate(domain_name=F('domain__name'))
+        )
+
+    @extend_schema(exclude=True)
+    def create(self, request, *args, **kwargs):
+        return Response(
+            {"detail": "POST not allowed on this endpoint"},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
         )
 
     @extend_schema(
@@ -250,8 +260,46 @@ class HostsViewSet(viewsets.ModelViewSet):
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
+    def _upload_csr_and_issue_cert(self, request, host):
+        # --- CSR as file ---
+        if "file" in request.FILES:
+            serializer = CSRFileUploadSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            csr_pem = serializer.validated_data["file"].read().decode("utf-8")
+
+        # --- CSR as text ---
+        else:
+            serializer = CSRTextUploadSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            csr_pem = serializer.validated_data["csr"]
+
+        # Parse & validate CSR
+        is_csr_valid, csr_validation_message = host.validate_csr(csr_pem=csr_pem)
+        if not is_csr_valid:
+            return False, Response(
+                {"detail": csr_validation_message},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Save CSR
+        host.csr = csr_pem
+        host.save(update_fields=["csr"])
+
+        # Issue a new certificate for the host
+        result = issue_certificate(host.csr)
+        if result['status'] == 'OK':
+            host.ssl_certificate = result['certs']['fullchain.pem']
+            host.save(update_fields=['ssl_certificate'])
+            return True, None
+
+        return False, Response(
+            {"detail": (msg for msg in result['messages'])},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     @extend_schema(
-        summary="Download SSL certificate by FQDN",
+        methods=["get"],
+        summary="Download SSL certificate",
         description="Downloads the stored SSL certificate for the given host identified by its FQDN.",
         parameters=[
             OpenApiParameter(
@@ -262,27 +310,57 @@ class HostsViewSet(viewsets.ModelViewSet):
                 type=OpenApiTypes.STR,
             ),
         ],
+        responses={200: OpenApiTypes.BINARY},
+    )
+    @extend_schema(
+        methods=["post"],
+        summary="Upload CSR and issue a new SSL certificate",
+        description="Uploads a CSR (text or file) and issues a new SSL certificate.",
+        parameters=[
+            OpenApiParameter(
+                name="fqdn",
+                location=OpenApiParameter.PATH,
+                description="Fully Qualified Domain Name of the host",
+                required=True,
+                type=OpenApiTypes.STR,
+            ),
+        ],
+        request={
+            "application/json": CSRTextUploadSerializer,
+            "multipart/form-data": CSRFileUploadSerializer,
+        },
         responses={
             200: OpenApiTypes.BINARY,
+            400: OpenApiTypes.STR,
             403: OpenApiTypes.STR,
             404: OpenApiTypes.STR,
         },
     )
-    @action(detail=False, methods=["get"], url_path=r"(?P<fqdn>[^/]+)/certificate")
+    @action(
+        detail=True,
+        methods=["get", "post"],
+        url_path="certificate",
+    )
     def get_certificate(self, request, fqdn=None):
         """
-        Download the SSL certificate of a host identified by its FQDN.
+        HTTP GET -> Download the certificate
+        HTTP POST -> Upload CSR (file or text), issue certificate, and download the certificate
         """
 
-        # Use custom lookup method
-        host = Host.get_by_fqdn(fqdn)
+        if not fqdn:
+            raise Http404("Invalid FQDN")
 
+        host = Host.get_by_fqdn(fqdn)
         if not host:
             return Response({"detail": "Host not found"}, status=404)
 
-        # Ownership restriction (optional)
         if host.created_by != request.user:
             return Response({"detail": "Not allowed"}, status=403)
+
+        if request.method.lower() == "post":
+            success, response = self._upload_csr_and_issue_cert(request, host)
+            if not success:
+                return response
 
         cert = host.ssl_certificate
         if not cert:

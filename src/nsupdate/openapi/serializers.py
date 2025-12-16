@@ -33,7 +33,6 @@ class DomainCreateSerializer(serializers.HyperlinkedModelSerializer):
         fields = CreateDomainForm.Meta.fields
 
 
-
 class HostSerializer(serializers.HyperlinkedModelSerializer):
     domain_name = serializers.CharField(source='domain.name', read_only=True)
     fqdn = serializers.SerializerMethodField()
@@ -68,3 +67,16 @@ class HostSerializer(serializers.HyperlinkedModelSerializer):
 
     def get_fqdn(self, obj) -> str:
         return f'{obj.get_fqdn()}'
+
+
+class CSRTextUploadSerializer(serializers.Serializer):
+    csr = serializers.CharField(
+        help_text="PEM-encoded Certificate Signing Request (CSR)",
+        style={"base_template": "textarea.html"},
+    )
+
+
+class CSRFileUploadSerializer(serializers.Serializer):
+    file = serializers.FileField(
+        help_text="Upload a PEM-encoded CSR file"
+    )

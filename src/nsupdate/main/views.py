@@ -692,7 +692,7 @@ class HostUploadCsrView(UpdateView):
             result = issue_certificate(self.object.csr)
             if result['status'] == 'OK':
                 self.object.ssl_certificate = result['certs']['fullchain.pem']
-                self.object.save()
+                self.object.save(update_fields=['ssl_certificate'])
             for msg in result['messages']:
                 messages.add_message(self.request, *msg)
 

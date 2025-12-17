@@ -27,6 +27,13 @@ class DomainSerializer(serializers.HyperlinkedModelSerializer):
         }
 
 
+class DomainOwnerSerializer(DomainSerializer):
+    class Meta(DomainSerializer.Meta):
+        fields = DomainSerializer.Meta.fields + [
+            'nameserver_update_secret'
+        ]
+
+
 class DomainCreateSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = Domain

@@ -8,31 +8,36 @@ from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
 )
-from rest_framework import filters, mixins, permissions, status, viewsets
+from rest_framework import filters, generics, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 
 from nsupdate.main.models import (
     Domain,
     Host,
 )
+from .permissions import CreatedByUser
 from .serializers import (
     DomainSerializer,
     DomainCreateSerializer,
     HostSerializer,
     CSRTextUploadSerializer,
-    CSRFileUploadSerializer,
-)
+    CSRFileUploadSerializer, )
 from ..utils.cert import issue_certificate
 
 
-class DomainsViewSet(
-    mixins.ListModelMixin,
-    mixins.RetrieveModelMixin,
-    # mixins.CreateModelMixin,
-    viewsets.GenericViewSet,
-):
-    permission_classes = [permissions.IsAuthenticated]
+def raise_Http404(view: generics.GenericAPIView):
+    raise Http404(
+        "No %s matches the given query." % view.serializer_class.Meta.model._meta.object_name
+    )
+
+
+class DomainsViewSet(viewsets.ModelViewSet):
+    permission_classes = [
+        IsAuthenticated,
+        (CreatedByUser | IsAdminUser)
+    ]
 
     # Enable ordering support
     filter_backends = [filters.OrderingFilter]
@@ -42,17 +47,31 @@ class DomainsViewSet(
     lookup_field = 'name'
     lookup_value_regex = '[^/]+'
 
+    def get_queryset(self):
+
+        if getattr(self, "swagger_fake_view", False):
+            return Domain.objects.none()
+
+        qs = (
+            Domain.objects.all()
+            .select_related('created_by')
+            .annotate(owner=F('created_by__username'))
+        )
+
+        if not self.request.user.is_staff:
+            qs = (
+                qs.filter(
+                    Q(public=True) |
+                    Q(public=False, created_by=self.request.user),
+                )
+            )
+
+        return qs
+
     def get_serializer_class(self):
         if self.action == 'create':
             return DomainCreateSerializer
         return DomainSerializer
-
-    def get_queryset(self):
-        return (
-            Domain.objects
-            .select_related('created_by')
-            .annotate(owner=F('created_by__username'))
-        )
 
     @extend_schema(
         summary="List all domains visible to the authenticated user.",
@@ -83,8 +102,7 @@ class DomainsViewSet(
         },
         examples=[
             OpenApiExample(
-                name="Example grouped domains response",
-                summary="Sample private/public domain grouping",
+                name="Example response",
                 description=(
                     "Private domains are not public and belong to the authenticated user. "
                     "Public domains are visible to everyone."
@@ -115,30 +133,19 @@ class DomainsViewSet(
         ],
     )
     def list(self, request, *args, **kwargs):
-        user = request.user
+        queryset = self.get_queryset()
+
         visibility = request.query_params.get('visibility', '')
-
-        queryset = (
-            self.get_queryset()
-            .filter(
-                Q(public=True) |
-                Q(public=False, created_by=user),
-            )
-        )
-
-        # ✅ Apply filter backends (includes ordering, search, filters)
         queryset = self.filter_queryset(queryset)
 
         if visibility.lower() == 'public':
-            queryset = queryset.filter(public=True)
+            queryset = queryset.filter(Q(public=True))
         elif visibility.lower() == 'private':
-            queryset = queryset.filter(public=False, created_by=user)
+            queryset = queryset.filter(Q(public=False))
 
         return Response(self.get_serializer(queryset, many=True).data)
 
-    @extend_schema(
-        summary="View domain details.",
-    )
+    @extend_schema(summary="View domain details.")
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
@@ -146,13 +153,28 @@ class DomainsViewSet(
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
+    @extend_schema(exclude=True)
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @extend_schema(exclude=True)
+    def destroy(self, request, *args, **kwargs):
+        return super().destroy(request, *args, **kwargs)
+
+    @extend_schema(exclude=True)
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
 
 class HostsViewSet(viewsets.ModelViewSet):
     serializer_class = HostSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        (CreatedByUser | IsAdminUser)
+    ]
 
     lookup_field = 'name'
     lookup_url_kwarg = 'fqdn'
@@ -167,39 +189,43 @@ class HostsViewSet(viewsets.ModelViewSet):
 
     search_fields = ['name', 'domain__name']
     filterset_fields = ['abuse', 'abuse_blocked', 'available', 'wildcard']
-    ordering_fields = ["name", "domain__name", "created_at"]
+    ordering_fields = ["name", "domain__name", "created"]
     ordering = ['name']
 
     http_method_names = ['get', 'post']
 
     def get_object(self):
-        fqdn = self.kwargs['fqdn']
+        fqdn = self.kwargs[self.lookup_url_kwarg]
 
-        if not fqdn or "." not in fqdn:
-            raise Http404("Invalid FQDN")
-
-        obj = Host.get_by_fqdn(fqdn)
+        try:
+            obj = Host.get_by_fqdn(fqdn)
+        except Exception:
+            raise_Http404(self)
 
         if not obj:
-            raise Http404("Host not found")
+            raise_Http404(self)
 
         self.check_object_permissions(self.request, obj)
         return obj
 
     def get_queryset(self):
-        # Let drf-spectacular generate the schema safely
         if getattr(self, "swagger_fake_view", False):
             return Host.objects.none()
-        # Restrict queryset to hosts created by the current user
-        return (
+
+        qs = (
             Host.objects
-            .filter(Q(created_by=self.request.user))
             .select_related(
                 'created_by',
                 'domain',
             )
+            .annotate(owner=F('created_by__username'))
             .annotate(domain_name=F('domain__name'))
         )
+
+        if not self.request.user.is_staff:
+            qs = qs.filter(Q(created_by=self.request.user))
+
+        return qs
 
     @extend_schema(exclude=True)
     def create(self, request, *args, **kwargs):
@@ -231,15 +257,7 @@ class HostsViewSet(viewsets.ModelViewSet):
         ],
     )
     def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+        return super().list(request, *args, **kwargs)
 
     @extend_schema(
         summary="View host details.",
@@ -338,16 +356,7 @@ class HostsViewSet(viewsets.ModelViewSet):
         HTTP GET -> Download the certificate
         HTTP POST -> Upload CSR (file or text), issue certificate, and download the certificate
         """
-
-        if not fqdn:
-            raise Http404("Invalid FQDN")
-
-        host = Host.get_by_fqdn(fqdn)
-        if not host:
-            return Response({"detail": "Host not found"}, status=404)
-
-        if host.created_by != request.user:
-            return Response({"detail": "Not allowed"}, status=403)
+        host = self.get_object()
 
         if request.method.lower() == "post":
             success, response = self._upload_csr_and_issue_cert(request, host)

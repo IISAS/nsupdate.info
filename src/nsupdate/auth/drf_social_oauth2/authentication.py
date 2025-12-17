@@ -55,7 +55,7 @@ class SocialOAuth2Authentication(authentication.BaseAuthentication):
             token = auth[1].decode()
             user = backend.do_auth(token)
         except AuthException:
-            raise exceptions.AuthenticationFailed('Invalid social authentication token')
+            raise exceptions.AuthenticationFailed('Access denied')
 
         if not user or not user.is_active:
             raise exceptions.AuthenticationFailed('User inactive or invalid')

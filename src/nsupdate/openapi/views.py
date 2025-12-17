@@ -142,13 +142,9 @@ class DomainsViewSet(
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
-    # @extend_schema(
-    #     request=DomainCreateSerializer,
-    #     responses=DomainSerializer,
-    #     summary="Add a new domain",
-    # )
-    # def create(self, request, *args, **kwargs):
-    #     return super().create(request, *args, **kwargs)
+    @extend_schema(exclude=True)
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
@@ -281,12 +277,8 @@ class HostsViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Save CSR
-        host.csr = csr_pem
-        host.save(update_fields=["csr"])
-
         # Issue a new certificate for the host
-        result = issue_certificate(host.csr)
+        result = issue_certificate(csr_pem)
         if result['status'] == 'OK':
             host.ssl_certificate = result['certs']['fullchain.pem']
             host.save(update_fields=['ssl_certificate'])

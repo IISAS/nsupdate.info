@@ -37,9 +37,9 @@ def parse_csr(csr_pem: str) -> dict:
         pass
 
     # ---- Wildcard detection ----
-    is_wildcard = False
+    has_wildcard = False
     if (cn and cn.startswith("*.")) or any(san.startswith("*.") for san in san_list):
-        is_wildcard = True
+        has_wildcard = True
 
     # ---- Public key information ----
     public_key = csr.public_key()
@@ -59,7 +59,7 @@ def parse_csr(csr_pem: str) -> dict:
         "common_name": cn,
         "subject": csr.subject.rfc4514_string(),
         "sans": san_list,
-        "is_wildcard": is_wildcard,
+        "has_wildcard": has_wildcard,
         "key_type": key_type,
         "key_size": key_size,
         "signature_algorithm": signature_algorithm,

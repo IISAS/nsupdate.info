@@ -12,11 +12,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name='host',
-            name='csr',
-            field=models.TextField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name='host',
             name='ssl_certificate',
             field=models.TextField(blank=True, null=True),
         ),

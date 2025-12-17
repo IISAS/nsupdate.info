@@ -4,6 +4,7 @@ form definitions (which fields are available, order, autofocus, ...)
 """
 import base64
 import binascii
+from enum import Enum
 
 from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -117,6 +118,10 @@ class EditUpdaterHostConfigForm(forms.ModelForm):
 
 
 class HostCsrUploadForm(forms.ModelForm):
+    class FieldNames(str, Enum):
+        CSR_PEM = 'csr_pem'
+        CSR_FILE = 'csr_file'
+
     error_messages = {
         "missing_csr_file": _("CSR file is required."),
         "invalid_content_type": _("The content of the uploaded file is not application/pkcs10."),
@@ -138,7 +143,7 @@ class HostCsrUploadForm(forms.ModelForm):
     def clean(self):
         cleaned = super().clean()
 
-        file = cleaned.get('csr_file')
+        file = cleaned.get(HostCsrUploadForm.FieldNames.CSR_FILE)
 
         if not file:
             code = 'missing_csr_file'
@@ -147,7 +152,7 @@ class HostCsrUploadForm(forms.ModelForm):
                 code=code,
             )
 
-        # TODO: problems with CSR generated on Windows machine
+        # TODO: problems with CSR uploaded from a Windows machine
         # # content type validation
         # if file.content_type.lower() != 'application/pkcs10':
         #     raise forms.ValidationError(
@@ -223,5 +228,5 @@ class HostCsrUploadForm(forms.ModelForm):
             )
 
         # Store content for save() method
-        cleaned['csr'] = file_content
+        cleaned[HostCsrUploadForm.FieldNames.CSR_PEM] = file_content
         return cleaned

@@ -676,25 +676,22 @@ class HostUploadCsrView(UpdateView):
 
     def form_valid(self, form):
 
-        csr = form.cleaned_data['csr']
-        csr_is_valid, csr_validation_message = self.object.validate_csr(csr)
+        csr_pem = form.cleaned_data.get(HostCsrUploadForm.FieldNames.CSR_PEM)
+        csr_is_valid, csr_validation_message = self.object.validate_csr(csr_pem)
 
         if not csr_is_valid:
             messages.error(self.request, csr_validation_message)
             return redirect(self.get_error_url())
 
-        # save the CSR to the host model and issue a certificate
         messages.success(self.request, "CSR accepted.")
-        self.object.csr = csr
-        self.object = form.save()
-        if self.object.csr is not None:
-            # issue a certificate for the host
-            result = issue_certificate(self.object.csr)
-            if result['status'] == 'OK':
-                self.object.ssl_certificate = result['certs']['fullchain.pem']
-                self.object.save(update_fields=['ssl_certificate'])
-            for msg in result['messages']:
-                messages.add_message(self.request, *msg)
+
+        # issue a certificate for the host
+        result = issue_certificate(csr_pem)
+        if result['status'] == 'OK':
+            self.object.ssl_certificate = result['certs']['fullchain.pem']
+            self.object.save(update_fields=['ssl_certificate'])
+        for msg in result['messages']:
+            messages.add_message(self.request, *msg)
 
         return redirect(self.get_success_url())
 

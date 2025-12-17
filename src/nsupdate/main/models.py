@@ -260,8 +260,6 @@ class Host(models.Model):
     created = models.DateTimeField(_("created at"), auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='hosts', verbose_name=_("created by"),
                                    on_delete=models.CASCADE)
-    # stores CSR content
-    csr = models.TextField(blank=True, null=True)
     # stores signed certificate
     ssl_certificate = models.TextField(blank=True, null=True)
 
@@ -281,7 +279,7 @@ class Host(models.Model):
 
         csr_cn = csr_info.get("common_name")
         csr_sans = csr_info.get("sans", [])
-        csr_is_wildcard = csr_info.get("is_wildcard", False)
+        csr_has_wildcard = csr_info.get("has_wildcard", False)
 
         # --- Missing CN in CSR ---
         if not csr_cn:
@@ -300,7 +298,7 @@ class Host(models.Model):
                 return (False, f"CRS includes unallowed SAN.")
 
         if self.wildcard:
-            if csr_is_wildcard:
+            if csr_has_wildcard:
                 if f'*.{host_fqdn}' not in csr_sans:
                     # --- wildcard does not match *.host.domain ---
                     return (False, f"CRS SAN list does not include '*.{host_fqdn}'.")
@@ -308,7 +306,7 @@ class Host(models.Model):
                 # --- missing wildcard in CSR ---
                 return (False, "CSR is missing wildcard.")
         else:
-            if csr_is_wildcard:
+            if csr_has_wildcard:
                 # --- host not having wildcard but CSR declares it ---
                 return (False, "CSR contains wildcard, but the host does not allow it.")
 

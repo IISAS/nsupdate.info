@@ -134,6 +134,9 @@ TEMPLATES = [
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
             # '/where/you/have/additional/templates',
+            os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "templates")
+            )
         ],
         'OPTIONS': {
             'context_processors': [
@@ -466,6 +469,7 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'nsupdate.auth.drf_social_oauth2.authentication.SocialOAuth2Authentication',
+        'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -492,5 +496,9 @@ SPECTACULAR_SETTINGS = {
     'SECURITY': [{'SocialOAuth2Auth': []}],
     'SWAGGER_UI_SETTINGS': {
         'persistAuthorization': True,
+        'withCredentials': True,
     },
+    'AUTHENTICATION_WHITELIST': [
+        'nsupdate.auth.drf_social_oauth2.authentication.SocialOAuth2Authentication'
+    ]
 }

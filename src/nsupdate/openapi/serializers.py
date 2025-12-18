@@ -42,7 +42,7 @@ class DomainCreateSerializer(serializers.HyperlinkedModelSerializer):
 
 class HostSerializer(serializers.HyperlinkedModelSerializer):
     domain_name = serializers.CharField(source='domain.name', read_only=True)
-    fqdn = serializers.SerializerMethodField()
+    fqdn = serializers.CharField(read_only=True)
 
     class Meta:
         model = Host
@@ -67,13 +67,9 @@ class HostSerializer(serializers.HyperlinkedModelSerializer):
         extra_kwargs = {
             'url': {
                 'view_name': 'host-detail',
-                'lookup_field': 'name',
-                'lookup_url_kwarg': 'fqdn'
+                'lookup_field': 'fqdn',
             }
         }
-
-    def get_fqdn(self, obj) -> str:
-        return f'{obj.get_fqdn()}'
 
 
 class CSRTextUploadSerializer(serializers.Serializer):

@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -24,4 +24,5 @@ urlpatterns = (
     path("docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     # Redoc UI
     path("redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    path(r'auth/', include("rest_framework.urls")),
 )

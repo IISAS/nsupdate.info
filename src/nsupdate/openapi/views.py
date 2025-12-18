@@ -1,4 +1,5 @@
-from django.db.models import F, Q
+from django.db.models import F, Q, Value
+from django.db.models.functions import Concat
 from django.http import HttpResponse, Http404
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
@@ -8,7 +9,7 @@ from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
 )
-from rest_framework import filters, generics, status, viewsets
+from rest_framework import generics, status, viewsets, mixins
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
@@ -17,10 +18,10 @@ from nsupdate.main.models import (
     Domain,
     Host,
 )
+from .filters import DomainFilter, HostFilter
 from .permissions import CreatedByUser
 from .serializers import (
     DomainSerializer,
-    DomainCreateSerializer,
     HostSerializer,
     CSRTextUploadSerializer,
     CSRFileUploadSerializer, )
@@ -34,44 +35,44 @@ def raise_Http404(view: generics.GenericAPIView):
 
 
 class DomainsViewSet(viewsets.ModelViewSet):
+    http_method_names = ['get']
+
+    serializer_class = DomainSerializer
+
     permission_classes = [
         IsAuthenticated,
         (CreatedByUser | IsAdminUser)
     ]
 
-    # Enable ordering support
-    filter_backends = [filters.OrderingFilter]
-    ordering_fields = ['id', 'name', 'owner', 'created', 'last_update']
-    ordering = ['name']
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = DomainFilter
+
+    search_fields = ['name']
 
     lookup_field = 'name'
     lookup_value_regex = '[^/]+'
 
     def get_queryset(self):
-
         if getattr(self, "swagger_fake_view", False):
             return Domain.objects.none()
 
         qs = (
-            Domain.objects.all()
+            Domain.objects
+            .filter(
+                Q(public=True) |
+                Q(public=False, created_by=self.request.user),
+            )
+        )
+
+        qs = (
+            qs
             .select_related('created_by')
             .annotate(owner=F('created_by__username'))
         )
 
-        if not self.request.user.is_staff:
-            qs = (
-                qs.filter(
-                    Q(public=True) |
-                    Q(public=False, created_by=self.request.user),
-                )
-            )
+        qs = self.filter_queryset(qs)
 
         return qs
-
-    def get_serializer_class(self):
-        if self.action == 'create':
-            return DomainCreateSerializer
-        return DomainSerializer
 
     @extend_schema(
         summary="List all domains visible to the authenticated user.",
@@ -83,14 +84,6 @@ class DomainsViewSet(viewsets.ModelViewSet):
                 location=OpenApiParameter.QUERY,
                 description="Order results by one of the allowed fields.",
                 enum=['name', 'owner', 'created', 'last_update', '-name', '-owner', '-created', '-last_update'],
-                required=False,
-            ),
-            OpenApiParameter(
-                name="visibility",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                description="Filter by visibility of the domain.",
-                enum=['public', 'private'],  # ✅ Dropdown options
                 required=False,
             ),
         ],
@@ -133,17 +126,9 @@ class DomainsViewSet(viewsets.ModelViewSet):
         ],
     )
     def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-
-        visibility = request.query_params.get('visibility', '')
-        queryset = self.filter_queryset(queryset)
-
-        if visibility.lower() == 'public':
-            queryset = queryset.filter(Q(public=True))
-        elif visibility.lower() == 'private':
-            queryset = queryset.filter(Q(public=False))
-
-        return Response(self.get_serializer(queryset, many=True).data)
+        # queryset = self.get_queryset()
+        # return Response(self.get_serializer(queryset, many=True).data)
+        return super().list(request, *args, **kwargs)
 
     @extend_schema(summary="View domain details.")
     def retrieve(self, request, *args, **kwargs):
@@ -169,40 +154,33 @@ class DomainsViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
 
-class HostsViewSet(viewsets.ModelViewSet):
+class HostsViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet
+):
+    http_method_names = ['get', 'post']
+
     serializer_class = HostSerializer
+
     permission_classes = [
         IsAuthenticated,
         (CreatedByUser | IsAdminUser)
     ]
 
-    lookup_field = 'name'
-    lookup_url_kwarg = 'fqdn'
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = HostFilter
+
+    lookup_field = 'fqdn'
+    # lookup_url_kwarg = 'fqdn'
     lookup_value_regex = '[^/]+'
 
-    # Enable pagination, ordering, and filtering
-    filter_backends = [
-        filters.SearchFilter,
-        filters.OrderingFilter,
-        DjangoFilterBackend,
-    ]
-
-    search_fields = ['name', 'domain__name']
-    filterset_fields = ['abuse', 'abuse_blocked', 'available', 'wildcard']
-    ordering_fields = ["name", "domain__name", "created"]
-    ordering = ['name']
-
-    http_method_names = ['get', 'post']
-
     def get_object(self):
-        fqdn = self.kwargs[self.lookup_url_kwarg]
+        fqdn = self.kwargs.get(self.lookup_url_kwarg or self.lookup_field)
 
         try:
-            obj = Host.get_by_fqdn(fqdn)
-        except Exception:
-            raise_Http404(self)
-
-        if not obj:
+            obj = self.get_queryset().get(fqdn=fqdn)
+        except Host.DoesNotExist:
             raise_Http404(self)
 
         self.check_object_permissions(self.request, obj)
@@ -214,16 +192,29 @@ class HostsViewSet(viewsets.ModelViewSet):
 
         qs = (
             Host.objects
+            .filter(
+                Q(created_by=self.request.user)
+            )
+        )
+
+        qs = (
+            qs
             .select_related(
                 'created_by',
                 'domain',
             )
             .annotate(owner=F('created_by__username'))
             .annotate(domain_name=F('domain__name'))
+            .annotate(
+                fqdn=Concat(
+                    F('name'),
+                    Value('.'),
+                    F('domain__name')
+                )
+            )
         )
 
-        if not self.request.user.is_staff:
-            qs = qs.filter(Q(created_by=self.request.user))
+        qs = self.filter_queryset(qs)
 
         return qs
 

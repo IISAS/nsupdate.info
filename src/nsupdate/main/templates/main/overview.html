@@ -93,6 +93,7 @@
                     <th>{% trans "Domain" %}</th>
                     <th>{% trans "Public" %}</th>
                     <th>{% trans "Available" %}</th>
+                    <th>{% trans "Virtual Organization" %}</th>
                     <th>{% trans "Owner" %}</th>
                     <th>{% trans "Comment" %}</th>
                 </tr>
@@ -102,22 +103,24 @@
                     <td><a href="{% url 'domain_view' domain.pk %}">{{ domain.name }}</a></td>
                     <td>{{ domain.public|yesno }}</td>
                     <td>{{ domain.available|yesno }}</td>
+                    <td>{{ domain.vo }}</td>
                     <td>{{ domain.created_by }}</td>
                     <td>{{ domain.comment }}</td>
                 </tr>
             {% empty %}
-                <tr><td colspan="5">{% trans "No domains from you yet." %}</td></tr>
+                <tr><td colspan="6">{% trans "No domains from you yet." %}</td></tr>
             {% endfor %}
             {% for domain in public_domains %}
                 <tr>
                     <td>{{ domain.name }}</td>
                     <td>{{ domain.public|yesno }}</td>
                     <td>{{ domain.available|yesno }}</td>
+                    <td>{{ domain.vo }}</td>
                     <td>{{ domain.created_by }}</td>
                     <td>{{ domain.comment }}</td>
                 </tr>
             {% empty %}
-                <tr><td colspan="5">{% trans "No public domains from other users yet." %}</td></tr>
+                <tr><td colspan="6">{% trans "No public domains from other users yet." %}</td></tr>
             {% endfor %}
             </table>
         </div>

@@ -11,8 +11,8 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
-from .models import Host, RelatedHost, Domain, ServiceUpdaterHostConfig
 from .dnstools import check_domain, NameServerNotAvailable
+from .models import Host, RelatedHost, Domain, ServiceUpdaterHostConfig
 
 
 class CreateHostForm(forms.ModelForm):
@@ -23,6 +23,11 @@ class CreateHostForm(forms.ModelForm):
             'name': forms.widgets.TextInput(attrs=dict(autofocus=None)),
         }
 
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop("user", None)
+        self.user = user
+        super().__init__(*args, **kwargs)
+
 
 class EditHostForm(forms.ModelForm):
     class Meta(object):
@@ -31,6 +36,11 @@ class EditHostForm(forms.ModelForm):
 
     netmask_ipv4 = forms.IntegerField(min_value=0, max_value=32)
     netmask_ipv6 = forms.IntegerField(min_value=0, max_value=64)
+
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop("user", None)
+        self.user = user
+        super().__init__(*args, **kwargs)
 
 
 class CreateRelatedHostForm(forms.ModelForm):
@@ -49,23 +59,18 @@ class EditRelatedHostForm(forms.ModelForm):
 
 
 class CreateDomainForm(forms.ModelForm):
-    def clean_nameserver_update_secret(self):
-        secret = self.cleaned_data['nameserver_update_secret']
-        try:
-            binascii.a2b_base64(secret.encode(encoding="ascii", errors="strict"))
-        except (binascii.Error, UnicodeEncodeError):
-            raise forms.ValidationError(_("Enter a valid secret in base64 format."), code='invalid')
-        return secret
-
     class Meta(object):
         model = Domain
-        fields = ['name', 'nameserver_ip', 'nameserver2_ip', 'nameserver_update_algorithm', 'comment']
+        fields = ['name', 'vo', 'nameserver_ip', 'nameserver2_ip', 'nameserver_update_algorithm', 'comment']
         widgets = {
             'name': forms.widgets.TextInput(attrs=dict(autofocus=None)),
         }
 
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop("user", None)
+        self.user = user
+        super().__init__(*args, **kwargs)
 
-class EditDomainForm(forms.ModelForm):
     def clean_nameserver_update_secret(self):
         secret = self.cleaned_data['nameserver_update_secret']
         try:
@@ -73,6 +78,38 @@ class EditDomainForm(forms.ModelForm):
         except (binascii.Error, UnicodeEncodeError):
             raise forms.ValidationError(_("Enter a valid secret in base64 format."), code='invalid')
         return secret
+
+    def clean_vo(self):
+        vo = self.cleaned_data["vo"]
+        if vo and vo not in self.user.vos.all():
+            raise forms.ValidationError("Invalid VO selection.")
+        return vo
+
+
+class EditDomainForm(forms.ModelForm):
+    class Meta(object):
+        model = Domain
+        fields = ['comment', 'vo', 'nameserver_ip', 'nameserver2_ip', 'public', 'available',
+                  'nameserver_update_algorithm', 'nameserver_update_secret']
+
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop("user", None)
+        self.user = user
+        super().__init__(*args, **kwargs)
+
+    def clean_nameserver_update_secret(self):
+        secret = self.cleaned_data['nameserver_update_secret']
+        try:
+            binascii.a2b_base64(secret.encode(encoding="ascii", errors="strict"))
+        except (binascii.Error, UnicodeEncodeError):
+            raise forms.ValidationError(_("Enter a valid secret in base64 format."), code='invalid')
+        return secret
+
+    def clean_vo(self):
+        vo = self.cleaned_data["vo"]
+        if vo and vo not in self.user.vos.all():
+            raise forms.ValidationError("Invalid VO selection.")
+        return vo
 
     def clean(self):
         cleaned_data = super(EditDomainForm, self).clean()
@@ -93,11 +130,6 @@ class EditDomainForm(forms.ModelForm):
             raise forms.ValidationError(
                 _("Domain must be available to be public"),
                 code='invalid')
-
-    class Meta(object):
-        model = Domain
-        fields = ['comment', 'nameserver_ip', 'nameserver2_ip', 'public', 'available',
-                  'nameserver_update_algorithm', 'nameserver_update_secret']
 
 
 class CreateUpdaterHostConfigForm(forms.ModelForm):

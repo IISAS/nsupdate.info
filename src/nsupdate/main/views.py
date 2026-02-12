@@ -26,7 +26,8 @@ from .iptools import normalize_ip
 
 from .forms import (CreateHostForm, EditHostForm, CreateRelatedHostForm, EditRelatedHostForm,
                     CreateDomainForm, EditDomainForm, CreateUpdaterHostConfigForm, EditUpdaterHostConfigForm, HostCsrUploadForm)
-from .models import Host, RelatedHost, Domain, ServiceUpdaterHostConfig
+from .manager import VirtualOrganizationManager
+from .models import Host, RelatedHost, Domain, ServiceUpdaterHostConfig, VirtualOrganization
 from ..utils.cert import issue_certificate, parse_certificate
 
 
@@ -218,8 +219,7 @@ class AddHostView(CreateView):
 
     def get_form(self, form_class=None):
         form = super(AddHostView, self).get_form(form_class)
-        form.fields['domain'].queryset = Domain.objects.filter(
-            Q(created_by=self.request.user) | Q(public=True))
+        form.fields['domain'].queryset = Domain.objects.visible_to(self.request.user)
         return form
 
     def form_valid(self, form):
@@ -445,6 +445,11 @@ class AddDomainView(CreateView):
     def get_success_url(self):
         return reverse('generate_ns_secret_view', args=(self.object.pk,))
 
+    def get_form(self, form_class=None):
+        form = super(AddDomainView, self).get_form(form_class)
+        form.fields['vo'].queryset = VirtualOrganization.objects.visible_to(self.request.user)
+        return form
+
     def form_valid(self, form):
         self.object = form.save(commit=False)
         try:
@@ -464,6 +469,11 @@ class AddDomainView(CreateView):
         context['nav_overview'] = True
         return context
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user
+        return kwargs
+
 
 class DomainView(UpdateView):
     model = Domain
@@ -476,6 +486,11 @@ class DomainView(UpdateView):
 
     def get_success_url(self):
         return reverse('overview')
+
+    def get_form(self, form_class=None):
+        form = super(DomainView, self).get_form(form_class)
+        form.fields['vo'].queryset = VirtualOrganization.objects.visible_to(self.request.user)
+        return form
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
@@ -493,6 +508,11 @@ class DomainView(UpdateView):
         context = super(DomainView, self).get_context_data(**kwargs)
         context['nav_overview'] = True
         return context
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user
+        return kwargs
 
 
 class DeleteDomainView(DeleteView):

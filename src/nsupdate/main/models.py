@@ -22,6 +22,7 @@ from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
 from . import dnstools
+from .manager import DomainManager, VirtualOrganizationManager
 from ..utils.cert import parse_csr
 
 RESULT_MSG_LEN = 255
@@ -85,6 +86,48 @@ UPDATE_ALGORITHMS = {
 UPDATE_ALGORITHM_CHOICES = [(k, k) for k in UPDATE_ALGORITHMS]
 
 
+class VOMembership(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE
+    )
+    vo = models.ForeignKey(
+        "VirtualOrganization",
+        on_delete=models.CASCADE
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "vo"],
+                name="unique_user_vo_membership"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user} in {self.vo}"
+
+
+class VirtualOrganization(models.Model):
+    name = models.CharField(
+        _("name"),
+        max_length=255,
+        unique=True,
+        help_text=_("Virtual Organization name")
+    )
+    members = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through="VOMembership",
+        related_name="vos",
+        blank=True,
+    )
+
+    objects = VirtualOrganizationManager()
+
+    def __str__(self):
+        return self.name
+
+
 class Domain(models.Model):
     name = models.CharField(
         _("name"),
@@ -134,6 +177,17 @@ class Domain(models.Model):
     created = models.DateTimeField(_("created at"), auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='domains', verbose_name=_("created by"),
                                    on_delete=models.CASCADE)
+    vo = models.ForeignKey(
+        VirtualOrganization,
+        on_delete=models.PROTECT,
+        null=True,  # allows “no VO”
+        blank=True,  # allows empty in forms/admin
+        verbose_name="Virtual organization",
+        help_text="Limit domain to a selected virtual organization's scope.",
+        related_name="domains",
+    )
+
+    objects = DomainManager()
 
     def __str__(self):
         return self.name

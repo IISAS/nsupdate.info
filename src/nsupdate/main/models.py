@@ -2,22 +2,21 @@
 models for hosts, domains, service updaters, ...
 """
 
+import base64
 import re
 import secrets
 import time
-import base64
 from typing import Tuple
 
-import dns.resolver
 import dns.message
-
-from django.db import models
+import dns.resolver
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
-from django.conf import settings
+from django.db import models
 from django.db.models.signals import pre_delete, post_save
-from django.contrib.auth.hashers import make_password
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
@@ -120,6 +119,7 @@ class VirtualOrganization(models.Model):
         through="VOMembership",
         related_name="vos",
         blank=True,
+        help_text=_("Users who belong to this Virtual Organization")
     )
 
     objects = VirtualOrganizationManager()
@@ -231,7 +231,8 @@ class Host(models.Model):
     )
     update_secret = models.CharField(
         _("update secret"),
-        max_length=128,  # secret gets hashed (on save) to salted sha1, "sha1" + "$" + 22 chars salt + "$" + 40 chars sha1 = 68 chars
+        max_length=128,
+        # secret gets hashed (on save) to salted sha1, "sha1" + "$" + 22 chars salt + "$" + 40 chars sha1 = 68 chars
     )
     comment = models.CharField(
         _("comment"),

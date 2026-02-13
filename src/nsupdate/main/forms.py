@@ -8,11 +8,12 @@ from enum import Enum
 
 from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric import padding
+from dal import autocomplete
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from .dnstools import check_domain, NameServerNotAvailable
-from .models import Host, RelatedHost, Domain, ServiceUpdaterHostConfig
+from .models import Host, RelatedHost, Domain, ServiceUpdaterHostConfig, VirtualOrganization
 
 
 class CreateHostForm(forms.ModelForm):
@@ -59,6 +60,20 @@ class EditRelatedHostForm(forms.ModelForm):
 
 
 class CreateDomainForm(forms.ModelForm):
+    # define the vo field explicitly
+    vo = forms.ModelChoiceField(
+        queryset=VirtualOrganization.objects.none(),  # will set in __init__
+        widget=autocomplete.ModelSelect2(
+            url="vo-autocomplete",
+            attrs={
+                "data-placeholder": "Search ...",
+                "data-allow-clear": "true",
+            }
+        ),
+        label="Virtual Organization",
+        help_text=_("Assign domain to a virtual organization or leave blank for none.")
+    )
+
     class Meta(object):
         model = Domain
         fields = ['name', 'vo', 'nameserver_ip', 'nameserver2_ip', 'nameserver_update_algorithm', 'comment']
@@ -66,10 +81,10 @@ class CreateDomainForm(forms.ModelForm):
             'name': forms.widgets.TextInput(attrs=dict(autofocus=None)),
         }
 
-    def __init__(self, *args, **kwargs):
-        user = kwargs.pop("user", None)
-        self.user = user
+    def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.user = user
+        self.fields["vo"].queryset = VirtualOrganization.objects.visible_to(user)
 
     def clean_nameserver_update_secret(self):
         secret = self.cleaned_data['nameserver_update_secret']
@@ -81,8 +96,11 @@ class CreateDomainForm(forms.ModelForm):
 
     def clean_vo(self):
         vo = self.cleaned_data["vo"]
-        if vo and vo not in self.user.vos.all():
-            raise forms.ValidationError("Invalid VO selection.")
+        if vo:
+            if self.user.is_staff:
+                return VirtualOrganization.objects.get(pk=vo.pk)
+            if vo not in self.user.vos.all():
+                raise forms.ValidationError("Invalid VO selection.")
         return vo
 
 

@@ -13,6 +13,7 @@
                 <h3>{% trans "Add a new Domain" %}</h3>
                 <form method="post" action="">
                     {% csrf_token %}
+                    {{ form.media }}
                     {{ form|bootstrap }}
                     <button type="submit" class="btn btn-primary">{% trans "Add" %}</button>
                 </form>

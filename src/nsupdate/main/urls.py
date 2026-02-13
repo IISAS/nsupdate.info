@@ -9,7 +9,7 @@ from .views import (
     RobotsTxtView, DomainView, AddDomainView, DeleteDomainView, StatusView, JsUpdateView,
     UpdaterHostConfigOverviewView, UpdaterHostConfigView, DeleteUpdaterHostConfigView,
     RelatedHostOverviewView, RelatedHostView, AddRelatedHostView, DeleteRelatedHostView, HostCertificateView,
-    HostDownloadCertificateView, CustomTemplateView, HostUploadCsrView)
+    HostDownloadCertificateView, CustomTemplateView, HostUploadCsrView, VirtualOrganizationAutocomplete)
 from ..api.views import (
     myip_view, DetectIpView, AjaxGetIps, NicUpdateView, AuthorizedNicUpdateView,
     NicDeleteView, AuthorizedNicDeleteView, NicRegisterView, NicUnregisterView, NicDomainsView, NicHostsView,
@@ -63,4 +63,5 @@ urlpatterns = (
     re_path(r'^api/', include('nsupdate.openapi.urls')),
     # for bots
     re_path(r'^robots.txt$', RobotsTxtView.as_view(), name='robots'),
+    re_path(r'^vo-autocomplete/$', VirtualOrganizationAutocomplete.as_view(), name="vo-autocomplete"),
 )

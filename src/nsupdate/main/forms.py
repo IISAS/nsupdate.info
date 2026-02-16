@@ -68,6 +68,7 @@ class CreateDomainForm(forms.ModelForm):
             attrs={
                 "data-placeholder": "Search ...",
                 "data-allow-clear": "true",
+                "style": "width: 100%",
             }
         ),
         label="Virtual Organization",

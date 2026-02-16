@@ -1,4 +1,4 @@
 # packages needed for production
 -r all.txt
-psycopg2
-gunicorn
+psycopg2==2.9.9
+gunicorn==23.0.0

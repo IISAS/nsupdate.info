@@ -1,12 +1,14 @@
 # packages always needed
-dnspython
-netaddr
+dnspython==2.6.1
+netaddr==1.2.1
 django==4.2.27
-django-bootstrap-form
-django-referrer-policy
-django-registration-redux
-django-extensions
-social-auth-app-django
-requests
-setuptools-scm
-importlib_resources
+django-autocomplete-light==3.12.1
+django-bootstrap-form==3.4
+django-referrer-policy==1.0
+django-registration-redux==2.13
+django-extensions==3.2.3
+django-querysetsequence==0.17
+social-auth-app-django==5.4.1
+requests==2.31.0
+setuptools-scm==8.0.4
+importlib_resources==6.4.5

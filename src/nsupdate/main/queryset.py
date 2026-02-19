@@ -9,19 +9,22 @@ class DomainQuerySet(models.QuerySet):
         """
         if user:
             if user.is_staff:
-                # Staff can see everything
+                # Staff can see all the domains
                 return self.all()
 
-            # Normal user: VO filtering + public/created_by
+            # Normal user: filtering by ownership, domain publicity and VO
+            # show domain if:
+            # 1) user is an owner of the domain
+            # 2) domain is public and does not belong to any VO
+            # 3) domain is public and is in the same VO as the user
             return self.filter(
+                Q(created_by=user) |
                 (
-                    Q(vo__isnull=True) &
-                    (
-                        Q(created_by=user) |
-                        Q(public=True)
+                    Q(public=True) & (
+                        Q(vo__isnull=True) |
+                        Q(vo__in=user.vos.all())
                     )
-                ) |
-                Q(vo__in=user.vos.all())
+                )
             )
         return self.none()
 

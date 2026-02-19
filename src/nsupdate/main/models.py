@@ -114,6 +114,15 @@ class VirtualOrganization(models.Model):
         unique=True,
         help_text=_("Virtual Organization name")
     )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name='private_vos',
+        verbose_name=_("created by"),
+        default=None,
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE
+    )
     members = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through="VOMembership",

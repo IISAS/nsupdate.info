@@ -59,9 +59,8 @@ class EditRelatedHostForm(forms.ModelForm):
         fields = ['name', 'comment', 'available', 'interface_id_ipv4', 'interface_id_ipv6']
 
 
-class CreateDomainForm(forms.ModelForm):
-    # define the vo field explicitly
-    vo = forms.ModelChoiceField(
+def createVirtualOrganizationFormField():
+    return forms.ModelChoiceField(
         queryset=VirtualOrganization.objects.none(),  # will set in __init__
         widget=autocomplete.ModelSelect2(
             url="vo-autocomplete",
@@ -71,9 +70,15 @@ class CreateDomainForm(forms.ModelForm):
                 "style": "width: 100%",
             }
         ),
+        required=False,
         label="Virtual Organization",
         help_text=_("Assign domain to a virtual organization or leave blank for none.")
     )
+
+
+class CreateDomainForm(forms.ModelForm):
+    # define the vo field explicitly
+    vo = createVirtualOrganizationFormField()
 
     class Meta(object):
         model = Domain
@@ -106,15 +111,18 @@ class CreateDomainForm(forms.ModelForm):
 
 
 class EditDomainForm(forms.ModelForm):
+    # define the vo field explicitly
+    vo = createVirtualOrganizationFormField()
+
     class Meta(object):
         model = Domain
         fields = ['comment', 'vo', 'nameserver_ip', 'nameserver2_ip', 'public', 'available',
                   'nameserver_update_algorithm', 'nameserver_update_secret']
 
-    def __init__(self, *args, **kwargs):
-        user = kwargs.pop("user", None)
-        self.user = user
+    def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.user = user
+        self.fields["vo"].queryset = VirtualOrganization.objects.visible_to(user)
 
     def clean_nameserver_update_secret(self):
         secret = self.cleaned_data['nameserver_update_secret']
@@ -126,8 +134,11 @@ class EditDomainForm(forms.ModelForm):
 
     def clean_vo(self):
         vo = self.cleaned_data["vo"]
-        if vo and vo not in self.user.vos.all():
-            raise forms.ValidationError("Invalid VO selection.")
+        if vo:
+            if self.user.is_staff:
+                return VirtualOrganization.objects.get(pk=vo.pk)
+            if vo not in self.user.vos.all():
+                raise forms.ValidationError("Invalid VO selection.")
         return vo
 
     def clean(self):

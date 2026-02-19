@@ -118,9 +118,10 @@ class StatusView(TemplateView):
         context = super(
             StatusView, self).get_context_data(**kwargs)
         context['nav_status'] = True
-        context['domains_total'] = Domain.objects.count()
-        context['domains_unavailable'] = Domain.objects.filter(available=False).count()
-        context['domains_public'] = Domain.objects.filter(public=True).count()
+        domains = Domain.objects.visible_to(self.request.user)
+        context['domains_total'] = domains.count()
+        context['domains_unavailable'] = domains.filter(available=False).count()
+        context['domains_public'] = domains.filter(public=True).count()
         context['hosts_total'] = Host.objects.count()
         context['hosts_unavailable'] = Host.objects.filter(available=False).count()
         context['hosts_abuse'] = Host.objects.filter(abuse=True).count()
@@ -196,10 +197,11 @@ class OverviewView(TemplateView):
             .only("name", "comment", "available", "client_faults", "server_faults", "abuse_blocked", "abuse",
                   "last_update_ipv4", "tls_update_ipv4", "last_update_ipv6", "tls_update_ipv6", "domain__name",
                   "wildcard")
-        context['your_domains'] = Domain.objects.filter(
+        domains = Domain.objects.visible_to(self.request.user)
+        context['your_domains'] = domains.filter(
             created_by=self.request.user).select_related("created_by__profile") \
             .only("name", "public", "available", "comment", "created_by__username")
-        context['public_domains'] = Domain.objects.filter(
+        context['public_domains'] = domains.filter(
             public=True).exclude(created_by=self.request.user).select_related("created_by") \
             .only("name", "public", "available", "comment", "created_by__username")
         return context
@@ -481,11 +483,6 @@ class DomainView(UpdateView):
 
     def get_success_url(self):
         return reverse('overview')
-
-    def get_form(self, form_class=None):
-        form = super(DomainView, self).get_form(form_class)
-        form.fields['vo'].queryset = VirtualOrganization.objects.visible_to(self.request.user)
-        return form
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
@@ -800,7 +797,10 @@ class VirtualOrganizationAutocomplete(LoginRequiredMixin, autocomplete.Select2Qu
         if not user or not user.is_staff:
             raise PermissionDenied()
 
-        vo, created = VirtualOrganization.objects.get_or_create(name=name)
+        vo, created = VirtualOrganization.objects.get_or_create(
+            name=name,
+            created_by=user,
+        )
 
         VOMembership.objects.get_or_create(
             user=user,

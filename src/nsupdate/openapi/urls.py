@@ -11,7 +11,7 @@ from .views import (
     HostsViewSet,
 )
 
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register(r'domains', DomainsViewSet, basename='domain')
 router.register(r'hosts', HostsViewSet, basename='host')
 

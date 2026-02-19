@@ -14,7 +14,9 @@ def sync_virtual_organizations(backend, user, response, *args, **kwargs):
     if isinstance(entitlements, str):
         entitlements = [entitlements]
 
-    user.vos.clear()
+    # clear only external virtual organizations; i.e., those that were not created within the DynDNS service
+    vos_to_remove = user.vos.filter(created_by__isnull=True)
+    user.vos.remove(*vos_to_remove)
 
     from .models import VirtualOrganization
 
@@ -22,6 +24,9 @@ def sync_virtual_organizations(backend, user, response, *args, **kwargs):
         name = get_vo_name(ent)
         vo, _ = VirtualOrganization.objects.get_or_create(
             name=name,
-            defaults={"name": name}
+            defaults={
+                "name": name,
+                "created_by": None,
+            },
         )
         user.vos.add(vo)

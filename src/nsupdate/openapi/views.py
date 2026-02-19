@@ -56,18 +56,18 @@ class DomainsViewSet(viewsets.ModelViewSet):
         if getattr(self, "swagger_fake_view", False):
             return Domain.objects.none()
 
-        qs = (
-            Domain.objects
-            .filter(
-                Q(public=True) |
-                Q(public=False, created_by=self.request.user),
-            )
-        )
+        qs = Domain.objects.visible_to(self.request.user)
 
         qs = (
             qs
-            .select_related('created_by')
-            .annotate(owner=F('created_by__username'))
+            .select_related(
+                'created_by',
+                'vo'
+            )
+            .annotate(
+                owner=F('created_by__username'),
+                virtual_organization=F('vo__name'),
+            )
         )
 
         qs = self.filter_queryset(qs)
@@ -367,3 +367,26 @@ class HostsViewSet(
         filename = f"{host.get_fqdn()}.pem"
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+
+    @extend_schema(
+        summary="Resolve host IPv4.",
+        parameters=[
+            OpenApiParameter(
+                name="fqdn",
+                location=OpenApiParameter.PATH,
+                description="The FQDN of the host.",
+                required=True,
+                type=OpenApiTypes.STR,
+            ),
+        ],
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="ipv4"
+    )
+    def get_ipv4(self, request, fqdn=None):
+        host = self.get_object()
+        return Response(
+            {"ipv4": host.get_ipv4()}
+        )

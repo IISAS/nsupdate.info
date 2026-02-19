@@ -6,6 +6,7 @@ from nsupdate.main.models import Host, Domain
 
 class DomainSerializer(serializers.HyperlinkedModelSerializer):
     owner = serializers.CharField(source='created_by.username', read_only=True)
+    virtual_organization = serializers.CharField(source='vo.name', read_only=True, default=None)
 
     class Meta:
         model = Domain
@@ -14,6 +15,7 @@ class DomainSerializer(serializers.HyperlinkedModelSerializer):
             'name',
             'owner',
             'public',
+            'virtual_organization',
             'available',
             'comment',
             'created',

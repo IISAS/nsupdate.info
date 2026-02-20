@@ -71,11 +71,26 @@
                                 orderSequence: ['asc', 'desc'],
                                 data: null,
                                 render: function (data, type, row) {
-                                    if (type !== "display") return row.fqdn;
+                                    if (type === "display") {
+                                        // what the user sees in the table
+                                        return `<a href="/host/${row.id}/">${row.fqdn}</a>`
+                                            + (row.wildcard ? '&nbsp;<span class="label label-primary">wildcard</span>' : '')
+                                            + `<br>${row.comment ?? ""}`;
+                                    }
 
-                                    return `<a href="/host/${row.id}/">${row.fqdn}</a>`
-                                        + (row.wildcard ? '&nbsp;<span class="label label-primary">wildcard</span>' : '')
-                                        + `<br>${row.comment ?? ""}`;
+                                    // what is used for search and sorting
+                                    if (type === "filter") {
+                                        // search in fqdn + comment
+                                        return `${row.fqdn} ${row.comment ?? ""}`;
+                                    }
+
+                                    if (type === "sort") {
+                                        // sort by fqdn only
+                                        return row.fqdn;
+                                    }
+
+                                    // fallback
+                                    return row.fqdn;
                                 }
                             },
                             // ---- Available ----

@@ -10,7 +10,7 @@ from .views import (
     UpdaterHostConfigOverviewView, UpdaterHostConfigView, DeleteUpdaterHostConfigView,
     RelatedHostOverviewView, RelatedHostView, AddRelatedHostView, DeleteRelatedHostView, HostCertificateView,
     HostDownloadCertificateView, CustomTemplateView, HostUploadCsrView, VirtualOrganizationAutocomplete, HostsView,
-    HostIpv4View, HostIpv6View)
+    HostIpv4View, HostIpv6View, DomainsView)
 from ..api.views import (
     myip_view, DetectIpView, AjaxGetIps, NicUpdateView, AuthorizedNicUpdateView,
     NicDeleteView, AuthorizedNicDeleteView, NicRegisterView, NicUnregisterView, NicDomainsView, NicHostsView,
@@ -41,6 +41,7 @@ urlpatterns = (
     re_path(r'^host/(?P<pk>\d+)/certificate/csr', HostUploadCsrView.as_view(), name='host_upload_csr'),
     re_path(r'^host/(?P<host_id>\d+)/certificate/download$', HostDownloadCertificateView.as_view(),
             name='host_certificate_download'),
+    re_path(r'^domains/?$', DomainsView.as_view(), name='domains'),
     re_path(r'^domain/(?P<pk>\d+)/$', DomainView.as_view(), name='domain_view'),
     re_path(r'^domain/add/$', AddDomainView.as_view(), name='add_domain'),
     re_path(r'^domain/(?P<pk>\d+)/delete/$', DeleteDomainView.as_view(), name='delete_domain'),

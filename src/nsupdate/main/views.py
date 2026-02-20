@@ -859,6 +859,9 @@ class HostsView(View):
     def get(self, request):
         draw = int(request.GET.get("draw", 1))
 
+        if self.request.user.is_anonymous or not self.request.user.is_authenticated:
+            raise Http404
+
         queryset = Host.objects.filter(created_by=self.request.user).select_related("domain") \
             .only("name", "comment", "available", "client_faults", "server_faults", "abuse_blocked", "abuse",
                   "last_update_ipv4", "tls_update_ipv4", "last_update_ipv6", "tls_update_ipv6", "domain__name",
@@ -878,6 +881,45 @@ class HostsView(View):
                 "server_faults": host.server_faults,
                 "abuse": host.abuse,
                 "abuse_blocked": host.abuse_blocked,
+            })
+
+        return JsonResponse({
+            "draw": draw,
+            "recordsTotal": total,
+            "recordsFiltered": total,
+            "data": data,
+        })
+
+
+class DomainsView(View):
+    def get(self, request):
+        draw = int(request.GET.get("draw", 1))
+
+        queryset = Domain.objects.visible_to(
+            self.request.user
+        ).select_related(
+            "created_by",
+        ).only(
+            "name",
+            "public",
+            "available",
+            "comment",
+            "created_by__username"
+        )
+
+        total = queryset.count()
+
+        data = []
+        for domain in queryset:
+            data.append({
+                "id": domain.pk,
+                "name": domain.name,
+                "public": domain.public,
+                "available": domain.available,
+                "vo": domain.vo.name if domain.vo else None,
+                "comment": domain.comment,
+                "owner": domain.created_by.username,
+                "group_field": "Public" if domain.public else "Owned" if domain.created_by == self.request.user else "Private",
             })
 
         return JsonResponse({

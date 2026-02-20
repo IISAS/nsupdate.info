@@ -858,8 +858,6 @@ class HostIpv6View(
 class HostsView(View):
     def get(self, request):
         draw = int(request.GET.get("draw", 1))
-        start = int(request.GET.get("start", 0))
-        length = int(request.GET.get("length", 10))
 
         queryset = Host.objects.filter(created_by=self.request.user).select_related("domain") \
             .only("name", "comment", "available", "client_faults", "server_faults", "abuse_blocked", "abuse",
@@ -867,9 +865,6 @@ class HostsView(View):
                   "wildcard")
 
         total = queryset.count()
-
-        # Pagination
-        queryset = queryset[start:start + length]
 
         data = []
         for host in queryset:

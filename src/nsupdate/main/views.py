@@ -860,18 +860,11 @@ class HostsView(View):
         draw = int(request.GET.get("draw", 1))
         start = int(request.GET.get("start", 0))
         length = int(request.GET.get("length", 10))
-        search_value = request.GET.get("search[value]", "")
 
         queryset = Host.objects.filter(created_by=self.request.user).select_related("domain") \
             .only("name", "comment", "available", "client_faults", "server_faults", "abuse_blocked", "abuse",
                   "last_update_ipv4", "tls_update_ipv4", "last_update_ipv6", "tls_update_ipv6", "domain__name",
                   "wildcard")
-
-        # Filtering
-        if search_value:
-            queryset = queryset.filter(
-                Q(name__icontains=search_value) | Q(domain__name__icontains=search_value)
-            )
 
         total = queryset.count()
 

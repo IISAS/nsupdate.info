@@ -8,8 +8,204 @@
                 {% trans "Your Hosts" %}
                 <a href="{% url 'add_host' %}" class="btn btn-primary btn-sm">{% trans "Add Host" %}</a>
             </h3>
+
+            <table id="hosts-table" class="display" style="width:100%">
+                <thead>
+                <tr>
+                    <th rowspan="2">
+                        {% trans "Host" %}
+                        <br>
+                        {% trans "Comment" %}
+                    </th>
+                    <th rowspan="2">
+                        {% trans "Available" %}
+                    </th>
+                    <th colspan="2">
+                        {% trans "Faults" %}
+                    </th>
+                    <th rowspan="2">{% trans "Abuse / Blocked" %}</th>
+                </tr>
+                <tr>
+                    <th>{% trans "Client" %}</th>
+                    <th>{% trans "Server" %}</th>
+                    <th>
+                        {% blocktrans with type=_("IPv4") %}{{ type }} Address{% endblocktrans %}
+                        <br>
+                        {% trans "(last update)" %}
+                    </th>
+                    <th>
+                        {% blocktrans with type=_("IPv6") %}{{ type }} Address{% endblocktrans %}
+                        <br>
+                        {% trans "(last update)" %}
+                    </th>
+                </tr>
+                </thead>
+            </table>
+            <script>
+                $(document).ready(function () {
+                    $('#hosts-table').DataTable({
+                        processing: true,   // shows "Processing..."
+                        serverSide: false,   // use Django backend pagination
+                        ajax: "{% url 'hosts' %}",
+                        columns: [
+                            // ---- FQDN + comment ----
+                            {
+                                data: null,
+                                render: function (data, type, row) {
+                                    if (type !== "display") return row.fqdn;
+
+                                    return `<a href="/host/${row.id}/">${row.fqdn}</a>`
+                                        + (row.wildcard ? '&nbsp;<span class="label label-primary">wildcard</span>' : '')
+                                        + `<br>${row.comment ?? ""}`;
+                                }
+                            },
+                            // ---- Available ----
+                            {
+                                data: "available",
+                                render: function (data, type) {
+                                    if (type !== "display") return data;
+                                    return data ? "Yes" : "No";
+                                }
+                            },
+
+                            // ---- Client faults ----
+                            {
+                                data: "client_faults",
+                                render: function (data, type) {
+                                    if (type !== "display")
+                                        return data;
+                                    return `${data}` ?? "n/a";
+                                }
+                            },
+
+                            // ---- Server faults ----
+                            {
+                                data: "server_faults",
+                                render: function (data, type) {
+                                    if (type !== "display")
+                                        return data;
+                                    return `${data}` ?? "n/a";
+                                }
+                            },
+
+                            // ---- Abuse ----
+                            {
+                                data: null,
+                                render: function (data, type, row) {
+                                    if (type !== "display") {
+                                        let val = row.abuse ? "abuse" : "";
+                                        return val + (val.length > 0 ? " " : "") + row.abuse_blocked ? "blocked" : "";
+                                    }
+
+                                    let html = `-`;
+
+                                    if (row.abuse_blocked) {
+                                        html = `<br><span class="label label-danger">Abuse-Blocked</span>`;
+                                    } else if (row.abuse) {
+                                        html = `<br><span class="label label-warning">Abuse</span>`;
+                                    }
+
+                                    return html;
+                                }
+                            },
+
+                            // IPv4
+                            {
+                                data: "id",
+                                render: function (data, type, row) {
+                                    if (type !== "display") return data;
+                                    return `
+                                    <span class="ipv4-cell"
+                                          data-host-id="${data}">
+                                        Loading...
+                                    </span>
+                                `;
+                                }
+                            },
+
+                            // IPv6
+                            {
+                                data: "id",
+                                render: function (data, type, row) {
+                                    if (type !== "display") return data;
+                                    return `
+                                    <span class="ipv6-cell"
+                                          data-host-id="${data}">
+                                        Loading...
+                                    </span>
+                                `;
+                                }
+                            }
+                        ]
+                    });
+                });
+
+                function renderIpAddressCell(cell, data) {
+
+                    let html = "";
+
+                    html += data.address == null
+                        ? "{% trans 'None' %}"
+                        : data.address;
+
+                    if (data.last_update && data.address) {
+
+                        html += "<br>(" + data.last_update_display + ", ";
+
+                        if (!data.tls_update) {
+                            html += "<span class=\"label label-warning\">{% trans 'no' %}";
+                        } else {
+                            html += "<span class=\"label label-success\">";
+                        }
+
+                        html += "{% trans 'TLS' %}</span>)";
+
+                    } else if (data.address != null) {
+
+                        html += "<br>({% trans 'unknown' %})";
+                    }
+
+                    cell.html(html);
+                }
+
+                $('#hosts-table').on('draw.dt', function () {
+
+                    $('.ipv4-cell').each(function () {
+
+                        let cell = $(this);
+                        let hostId = cell.data('host-id');
+
+                        if (!cell.data('loaded')) {
+                            cell.data('loaded', true);
+                            fetch(`/host/${hostId}/ipv4`)
+                                .then(response => response.json())
+                                .then(data => renderIpAddressCell(cell, data))
+                                .catch(() => {
+                                    cell.html('<span class="text-danger">{% trans "Error" %}</span>');
+                                });
+                        }
+                    });
+
+                    $('.ipv6-cell').each(function () {
+
+                        let cell = $(this);
+                        let hostId = cell.data('host-id');
+
+                        if (!cell.data('loaded')) {
+                            cell.data('loaded', true);
+                            fetch(`/host/${hostId}/ipv6`)
+                                .then(response => response.json())
+                                .then(data => renderIpAddressCell(cell, data))
+                                .catch(() => {
+                                    cell.html('<span class="text-danger">{% trans "Error" %}</span>');
+                                });
+                        }
+                    });
+                });
+            </script>
+
             <table class="table">
-            <thead>
+                <thead>
                 <tr>
                     <th>
                         {% trans "Host" %}
@@ -35,51 +231,55 @@
                         {% trans "(last update)" %}
                     </th>
                 </tr>
-            </thead>
-            {% for host in hosts %}
-                <tr>
-                    <td><a href="{% url 'host_view' host.pk %}">{{ host.get_fqdn }}</a>{% include "main/wildcard_tag.html" %}
-                        <br>
-                        {{ host.comment }}
-                    </td>
-                    <td>{{ host.available|yesno }}</td>
-                    <td>{{ host.client_faults }} / {{ host.server_faults }}
-                        {% if host.abuse_blocked %}
-                            <br><span class="label label-danger">{% trans "Abuse-Blocked" %}</span>
-                        {% elif host.abuse %}
-                            <br><span class="label label-warning">{% trans "Abuse" %}</span>
-                        {% endif %}
-                    </td>
-                    {% with ipv4=host.get_ipv4 %}
-                    <td>{{ ipv4|default_if_none:_("none")}}
-                        <br>
-                        {% if host.last_update_ipv4 and ipv4 %}
-                          ({{ host.last_update_ipv4|naturaltime }},
-                          {% if not host.tls_update_ipv4 %}
-                          <span class="label label-warning">{% trans "no" %} {% else %}
-                          <span class="label label-success">{% endif %}{% trans "TLS" %}</span>)
-                        {% elif ipv4 %}
-                          ({% trans "unknown" %})
-                        {% endif %}
-                    {% endwith %}
-                    </td>
-                    {% with ipv6=host.get_ipv6 %}
-                    <td>{{ ipv6|default_if_none:_("none") }}
-                        <br>
-                        {% if host.last_update_ipv6 and ipv6 %}
-                          ({{ host.last_update_ipv6|naturaltime }},
-                          {% if not host.tls_update_ipv6 %}
-                          <span class="label label-warning">{% trans "no" %} {% else %}
-                          <span class="label label-success">{% endif %}{% trans "TLS" %}</span>)
-                        {% elif ipv6 %}
-                          ({% trans "unknown" %})
-                        {% endif %}
-                    {% endwith %}
-                    </td>
-                </tr>
-            {% empty %}
-                <tr><td colspan="5">{% trans "No hosts yet." %}</td></tr>
-            {% endfor %}
+                </thead>
+                {% for host in hosts %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'host_view' host.pk %}">{{ host.get_fqdn }}</a>{% include "main/wildcard_tag.html" %}
+                            <br>
+                            {{ host.comment }}
+                        </td>
+                        <td>{{ host.available|yesno }}</td>
+                        <td>{{ host.client_faults }} / {{ host.server_faults }}
+                            {% if host.abuse_blocked %}
+                                <br><span class="label label-danger">{% trans "Abuse-Blocked" %}</span>
+                            {% elif host.abuse %}
+                                <br><span class="label label-warning">{% trans "Abuse" %}</span>
+                            {% endif %}
+                        </td>
+                        {#                    {% with ipv4=host.get_ipv4 %}#}
+                        {% with ipv4="0.0.0.0" %}
+                            <td>{{ ipv4|default_if_none:_("none") }}
+                            <br>
+                            {% if host.last_update_ipv4 and ipv4 %}
+                                ({{ host.last_update_ipv4|naturaltime }},
+                                {% if not host.tls_update_ipv4 %}
+                                    <span class="label label-warning">{% trans "no" %} {% else %}
+                                    <span class="label label-success">{% endif %}{% trans "TLS" %}</span>)
+                            {% elif ipv4 %}
+                                ({% trans "unknown" %})
+                            {% endif %}
+                        {% endwith %}
+                        </td>
+                        {% with ipv6=host.get_ipv6 %}
+                            <td>{{ ipv6|default_if_none:_("none") }}
+                            <br>
+                            {% if host.last_update_ipv6 and ipv6 %}
+                                ({{ host.last_update_ipv6|naturaltime }},
+                                {% if not host.tls_update_ipv6 %}
+                                    <span class="label label-warning">{% trans "no" %} {% else %}
+                                    <span class="label label-success">{% endif %}{% trans "TLS" %}</span>)
+                            {% elif ipv6 %}
+                                ({% trans "unknown" %})
+                            {% endif %}
+                        {% endwith %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="5">{% trans "No hosts yet." %}</td>
+                    </tr>
+                {% endfor %}
             </table>
         </div>
         <div class="col-md-12">
@@ -88,7 +288,7 @@
                 <a href="{% url 'add_domain' %}" class="btn btn-primary btn-sm">{% trans "Add Domain" %}</a>
             </h3>
             <table class="table">
-            <thead>
+                <thead>
                 <tr>
                     <th>{% trans "Domain" %}</th>
                     <th>{% trans "Public" %}</th>
@@ -97,31 +297,35 @@
                     <th>{% trans "Owner" %}</th>
                     <th>{% trans "Comment" %}</th>
                 </tr>
-            </thead>
-            {% for domain in your_domains %}
-                <tr>
-                    <td><a href="{% url 'domain_view' domain.pk %}">{{ domain.name }}</a></td>
-                    <td>{{ domain.public|yesno }}</td>
-                    <td>{{ domain.available|yesno }}</td>
-                    <td>{{ domain.vo }}</td>
-                    <td>{{ domain.created_by }}</td>
-                    <td>{{ domain.comment }}</td>
-                </tr>
-            {% empty %}
-                <tr><td colspan="6">{% trans "No domains from you yet." %}</td></tr>
-            {% endfor %}
-            {% for domain in public_domains %}
-                <tr>
-                    <td>{{ domain.name }}</td>
-                    <td>{{ domain.public|yesno }}</td>
-                    <td>{{ domain.available|yesno }}</td>
-                    <td>{{ domain.vo }}</td>
-                    <td>{{ domain.created_by }}</td>
-                    <td>{{ domain.comment }}</td>
-                </tr>
-            {% empty %}
-                <tr><td colspan="6">{% trans "No public domains from other users yet." %}</td></tr>
-            {% endfor %}
+                </thead>
+                {% for domain in your_domains %}
+                    <tr>
+                        <td><a href="{% url 'domain_view' domain.pk %}">{{ domain.name }}</a></td>
+                        <td>{{ domain.public|yesno }}</td>
+                        <td>{{ domain.available|yesno }}</td>
+                        <td>{{ domain.vo }}</td>
+                        <td>{{ domain.created_by }}</td>
+                        <td>{{ domain.comment }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6">{% trans "No domains from you yet." %}</td>
+                    </tr>
+                {% endfor %}
+                {% for domain in public_domains %}
+                    <tr>
+                        <td>{{ domain.name }}</td>
+                        <td>{{ domain.public|yesno }}</td>
+                        <td>{{ domain.available|yesno }}</td>
+                        <td>{{ domain.vo }}</td>
+                        <td>{{ domain.created_by }}</td>
+                        <td>{{ domain.comment }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6">{% trans "No public domains from other users yet." %}</td>
+                    </tr>
+                {% endfor %}
             </table>
         </div>
     </div>

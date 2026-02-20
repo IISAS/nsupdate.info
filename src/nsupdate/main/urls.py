@@ -9,7 +9,8 @@ from .views import (
     RobotsTxtView, DomainView, AddDomainView, DeleteDomainView, StatusView, JsUpdateView,
     UpdaterHostConfigOverviewView, UpdaterHostConfigView, DeleteUpdaterHostConfigView,
     RelatedHostOverviewView, RelatedHostView, AddRelatedHostView, DeleteRelatedHostView, HostCertificateView,
-    HostDownloadCertificateView, CustomTemplateView, HostUploadCsrView, VirtualOrganizationAutocomplete)
+    HostDownloadCertificateView, CustomTemplateView, HostUploadCsrView, VirtualOrganizationAutocomplete, HostsView,
+    HostIpv4View, HostIpv6View)
 from ..api.views import (
     myip_view, DetectIpView, AjaxGetIps, NicUpdateView, AuthorizedNicUpdateView,
     NicDeleteView, AuthorizedNicDeleteView, NicRegisterView, NicUnregisterView, NicDomainsView, NicHostsView,
@@ -25,7 +26,10 @@ urlpatterns = (
     re_path(r'^status/$', StatusView.as_view(), name='status'),
     re_path(r'^generate_secret/(?P<pk>\d+)/$', GenerateSecretView.as_view(), name='generate_secret_view'),
     re_path(r'^generate_ns_secret/(?P<pk>\d+)/$', GenerateNSSecretView.as_view(), name='generate_ns_secret_view'),
+    re_path(r'^hosts/?$', HostsView.as_view(), name='hosts'),
     re_path(r'^host/(?P<pk>\d+)/$', HostView.as_view(), name='host_view'),
+    re_path(r'^host/(?P<pk>\d+)/ipv4$', HostIpv4View.as_view(), name='host_ipv4_view'),
+    re_path(r'^host/(?P<pk>\d+)/ipv6$', HostIpv6View.as_view(), name='host_ipv6_view'),
     re_path(r'^host/add/$', AddHostView.as_view(), name='add_host'),
     re_path(r'^host/(?P<pk>\d+)/delete/$', DeleteHostView.as_view(), name='delete_host'),
     re_path(r'^host/(?P<mpk>\d+)/related/$', RelatedHostOverviewView.as_view(), name='related_host_overview'),

@@ -12,13 +12,15 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import Http404, HttpResponse, HttpResponseRedirect
+from django.contrib.humanize.templatetags.humanize import naturaltime
+from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import redirect, get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.timezone import now
 from django.views.generic import View, TemplateView, CreateView, DetailView
+from django.views.generic.detail import SingleObjectMixin
 from django.views.generic.edit import UpdateView, DeleteView
 
 from . import dnstools
@@ -811,3 +813,88 @@ class VirtualOrganizationAutocomplete(LoginRequiredMixin, autocomplete.Select2Qu
 
     def has_add_permission(self, request):
         return request.user.is_staff
+
+
+class HostIpv4View(
+    SingleObjectMixin,
+    View
+):
+    model = Host
+
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+
+        if self.object.created_by != request.user:
+            raise Http404
+
+        return JsonResponse({
+            "address": self.object.get_ipv4(),
+            "last_update": self.object.last_update_ipv4.isoformat() if self.object.last_update_ipv4 else None,
+            "last_update_display": naturaltime(self.object.last_update_ipv4) if self.object.last_update_ipv4 else None,
+            "tls_update": self.object.tls_update_ipv4,
+        })
+
+
+class HostIpv6View(
+    SingleObjectMixin,
+    View
+):
+    model = Host
+
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+
+        if self.object.created_by != request.user:
+            raise Http404
+
+        return JsonResponse({
+            "address": self.object.get_ipv6(),
+            "last_update": self.object.last_update_ipv6.isoformat() if self.object.last_update_ipv6 else None,
+            "last_update_display": naturaltime(self.object.last_update_ipv6) if self.object.last_update_ipv6 else None,
+            "tls_update": self.object.tls_update_ipv6,
+        })
+
+
+class HostsView(View):
+    def get(self, request):
+        draw = int(request.GET.get("draw", 1))
+        start = int(request.GET.get("start", 0))
+        length = int(request.GET.get("length", 10))
+        search_value = request.GET.get("search[value]", "")
+
+        queryset = Host.objects.filter(created_by=self.request.user).select_related("domain") \
+            .only("name", "comment", "available", "client_faults", "server_faults", "abuse_blocked", "abuse",
+                  "last_update_ipv4", "tls_update_ipv4", "last_update_ipv6", "tls_update_ipv6", "domain__name",
+                  "wildcard")
+
+        # Filtering
+        if search_value:
+            queryset = queryset.filter(
+                Q(name__icontains=search_value) | Q(domain__name__icontains=search_value)
+            )
+
+        total = queryset.count()
+
+        # Pagination
+        queryset = queryset[start:start + length]
+
+        data = []
+        for host in queryset:
+            data.append({
+                "id": host.pk,
+                "fqdn": host.get_fqdn(),
+                "wildcard": host.wildcard,
+                "comment": host.comment,
+                "available": host.available,
+                "client_faults": host.client_faults,
+                "server_faults": host.server_faults,
+                "abuse": host.abuse,
+                "abuse_blocked": host.abuse_blocked,
+            })
+
+        return JsonResponse({
+            "draw": draw,
+            "recordsTotal": total,
+            "recordsFiltered": total,
+            "data": data,
+        })

@@ -38,3 +38,27 @@ html, body {
   margin-top: 60px;
   background-color: #ddd;
 }
+
+.dt-input-wrapper {
+    position: relative;
+    display: inline;
+}
+
+.dt-input-wrapper input {
+    padding-right: 24px; /* space for the X */
+}
+
+.dt-clear-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: pointer;
+    color: #999;
+    font-size: 14px;
+    display: none;
+}
+
+.dt-clear-btn:hover {
+    color: #333;
+}

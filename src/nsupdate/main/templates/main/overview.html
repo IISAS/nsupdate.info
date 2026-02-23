@@ -267,139 +267,44 @@
                     }
                     return data;
                 }
+
                 $(document).ready(function () {
-                    const domainsTableDefaultOrder = [[2, 'asc']];
-                    $('#domains-table').DataTable({
-                        initComplete: function () {
-                            let table = this.api();
 
-                            let settings = table.settings()[0];
-                            table.columns().every(function (index) {
-                                let column = this;
-                                let footer = column.footer();
-                                if (!footer) return;
-
-                                let colDef = settings.aoColumns[index];
-
-                                // TEXT filter
-                                if (colDef.filterType === "text") {
-                                    let title = column.footer().textContent;
-
-                                    // Create input element
-                                    let input = document.createElement('input');
-                                    input.placeholder = title;
-                                    column.footer().replaceChildren(input);
-
-                                    // Event listener for user input
-                                    input.addEventListener('keyup', () => {
-                                        if (column.search() !== this.value) {
-                                            column.search(input.value).draw();
-                                        }
-                                    });
-                                }
-
-                                // YES/NO filter
-                                else if (colDef.filterType === "yesno") {
-                                    let select = document.createElement("select");
-                                    select.innerHTML = `
-                                        <option value="">--</option>
-                                        <option value="1">Yes</option>
-                                        <option value="0">No</option>
-                                    `;
-                                    footer.replaceChildren(select);
-                                    select.addEventListener("change", function () {
-                                        let value = this.value;
-                                        if (value == "") {
-                                            column.search("").draw();
-                                        } else {
-                                            column
-                                                .search("^" + this.value + "$", true, false) // exact match
-                                                .draw();
-                                        }
-                                    });
-                                }
-
-                                // DYNAMIC select
-                                else if (colDef.filterType === "select") {
-                                    let select = document.createElement("select");
-                                    select.innerHTML = `<option value="">All</option>`;
-                                    footer.replaceChildren(select);
-
-                                    column.data().unique().sort().each(function (d) {
-                                        if (d) select.innerHTML += `<option value="${d}">${d}</option>`;
-                                    });
-
-                                    select.addEventListener("change", function () {
-                                        column.search("^" + this.value + "$", true, false).draw();
-                                    });
-                                }
-
-                                // else → no footer filter
-                            });
-
-                            // RESET FILTERS: Add button next to global search
-                            let searchDiv = $('#domains-table_wrapper .dt-search');
-                            let resetBtn = $(`
-                                <button id="domains-table-reset-filters"
-                                        class="btn btn-default btn-sm"
-                                        style="margin-left:10px; display: none;">
-                                    {% trans "Reset filters" %}
-                                </button>
-                            `);
-                            searchDiv.append(resetBtn);
-                            // RESET FILTERS: Attach click handler
-                            resetBtn.on('click', function () {
-
-                                // Clear global search
-                                table.search('');
-
-                                // Clear column searches
-                                table.columns().search('');
-
-                                // Clear footer inputs/selects
-                                table.columns().every(function () {
-                                    let footer = this.footer();
-                                    if (!footer) return;
-                                    let input = footer.querySelector('input');
-                                    if (input) input.value = '';
-                                    let select = footer.querySelector('select');
-                                    if (select) select.value = '';
-                                });
-
-                                // Reset order
-                                table.order([[2, 'asc']]).draw();
-                            });
-                            // RESET FILTERS: update button visibility
-                            function updateResetVisibility() {
-                                // Check if global search is active
-                                let hasGlobalSearch = table.search().length > 0;
-                                // Check if any column search is active
-                                let hasColumnSearch = false;
-                                table.columns().every(function () {
-                                    if (this.search().length > 0) {
-                                        hasColumnSearch = true;
-                                    }
-                                });
-                                // Check if the default ordering has changed
-                                let defaultOrder = domainsTableDefaultOrder;
-                                let currentOrder = table.order();
-                                let orderChanged = JSON.stringify(currentOrder) !== JSON.stringify(defaultOrder);
-
-                                if (hasGlobalSearch || hasColumnSearch || orderChanged) {
-                                    resetBtn.show();
-                                } else {
-                                    resetBtn.hide();
-                                }
-                            }
-                            // RESET FILTERS: Monitor all searches
-                            table.on('search.dt', updateResetVisibility);
-                            table.on('draw.dt', updateResetVisibility);
-                        },
-                        fixedHeader: {
-                            footer: true
-                        },
+                    const domainsTableDefaultOrder = [[2, 'asc']]; // initial sort by name
+                    let collapsedGroups = {};
+                    let table = $('#domains-table').DataTable({
+                        ajax: "{% url 'domains' %}",
+                        processing: true,
+                        serverSide: false,
+                        fixedHeader: {footer: true},
                         orderFixed: [[0, 'asc']], // always group first
-                        order: domainsTableDefaultOrder, // initial order by name
+                        order: domainsTableDefaultOrder,
+                        rowGroup: {
+                            dataSrc: 'group_field',
+
+                            startRender: function (rows, group) {
+
+                                let collapsed = !!collapsedGroups[group];
+
+                                // Hide/show rows inside group
+                                rows.nodes().each(function (r) {
+                                    r.style.display = collapsed ? 'none' : '';
+                                });
+
+                                // Create clickable group header row
+                                return $('<tr/>')
+                                    .append('<td colspan="8" style="cursor:pointer;">'
+                                        + (collapsed ? '▶ ' : '▼ ')
+                                        + group + ' (' + rows.count() + ')'
+                                        + '</td>')
+                                    .attr('data-group', group)
+                                    .toggleClass('collapsed', collapsed);
+                            }
+                        },
+                        language: {
+                            emptyTable: "{% trans "No domains yet." %}",
+                            zeroRecords: "{% trans "No matching domains found" %}"
+                        },
                         columnDefs: [
                             {targets: 1, className: "dt-left"},
                             {targets: 2, className: "dt-left", filterType: "text"},
@@ -409,15 +314,252 @@
                             {targets: 6, className: "dt-left", filterType: "text"},
                             {targets: 7, className: "dt-left", filterType: "text"},
                         ],
-                        rowGroup: {
-                            dataSrc: "group_field"
-                        },
-                        processing: true,   // shows "Processing..."
-                        serverSide: false,   // use Django backend pagination
-                        ajax: "{% url 'domains' %}",
-                        language: {
-                            emptyTable: "{% trans "No domains yet." %}",
-                            zeroRecords: "{% trans "No matching domains found" %}",
+                        initComplete: function () {
+                            let api = this.api();
+
+                            // ===== 1️⃣ Add footer filters =====
+                            api.columns().every(function (index) {
+                                let column = this;
+                                let footer = column.footer();
+                                if (!footer) return;
+
+                                let colDef = api.settings()[0].aoColumns[index];
+
+                                // TEXT FILTER with clear button and debounce
+                                if (colDef.filterType === "text") {
+                                    let wrapper = document.createElement('div');
+                                    wrapper.className = 'dt-input-wrapper';
+
+                                    let input = document.createElement('input');
+                                    input.className = 'form-control input-sm';
+                                    input.placeholder = footer.textContent;
+
+                                    let clearBtn = document.createElement('span');
+                                    clearBtn.className = 'dt-clear-btn';
+                                    clearBtn.innerHTML = '&times';
+                                    clearBtn.style.display = 'none';
+
+                                    wrapper.appendChild(input);
+                                    wrapper.appendChild(clearBtn);
+                                    footer.replaceChildren(wrapper);
+
+                                    // Debounce function
+                                    let debounceTimer;
+                                    input.addEventListener('keyup', function () {
+                                        clearTimeout(debounceTimer);
+                                        debounceTimer = setTimeout(() => {
+                                            column.search(input.value).draw();
+                                            clearBtn.style.display = input.value ? 'block' : 'none';
+                                            saveFiltersToLocalStorage();
+                                            updateURL();
+                                        }, 300);
+                                    });
+
+                                    clearBtn.addEventListener('click', function () {
+                                        input.value = '';
+                                        column.search('').draw();
+                                        clearBtn.style.display = 'none';
+                                        saveFiltersToLocalStorage();
+                                        updateURL();
+                                        input.focus();
+                                    });
+                                }
+
+                                // YES/NO filter (bootstrap)
+                                else if (colDef.filterType === "yesno") {
+                                    let select = document.createElement('select');
+                                    select.classList.add('form-control', 'input-sm');
+                                    select.innerHTML = `<option value="">All</option><option value="1">Yes</option><option value="0">No</option>`;
+                                    footer.replaceChildren(select);
+                                    select.addEventListener('change', function () {
+                                        let val = this.value;
+                                        column.search(val ? '^' + val + '$' : '', true, false).draw();
+                                        saveFiltersToLocalStorage();
+                                        updateURL();
+                                    });
+                                }
+
+                                // DYNAMIC select (text-based select)
+                                else if (colDef.filterType === "select") {
+                                    let select = document.createElement('select');
+                                    select.classList.add('form-control', 'input-sm');
+                                    select.innerHTML = '<option value="">All</option>';
+                                    column.data().unique().sort().each(function (d) {
+                                        if (d) select.innerHTML += `<option value="${d}">${d}</option>`;
+                                    });
+                                    footer.replaceChildren(select);
+                                    select.addEventListener('change', function () {
+                                        let val = this.value;
+                                        column.search(val ? '^' + val + '$' : '', true, false).draw();
+                                        saveFiltersToLocalStorage();
+                                        updateURL();
+                                    });
+                                }
+                            });
+
+                            // ===== 2️⃣ Add reset button next to global search with clear button =====
+                            let searchDiv = $('#domains-table_wrapper .dt-search');
+                            let globalInput = $('#domains-table_wrapper .dt-search input');
+
+                            globalInput.wrap('<div class="dt-input-wrapper"></div>');
+                            let clearGlobal = $('<span class="dt-clear-btn">&times;</span>');
+                            globalInput.after(clearGlobal);
+
+                            clearGlobal.on('click', function () {
+                                globalInput.val('');
+                                localStorage.setItem('domainsTableSearch', globalInput.val());
+                                api.search('').draw();
+                                clearGlobal.hide();
+                            });
+
+                            let debounceTimer;
+                            globalInput.on('keyup', function () {
+                                clearTimeout(debounceTimer);
+                                debounceTimer = setTimeout(() => {
+                                    api.search(globalInput.val()).draw();
+                                    if (globalInput.val()) clearGlobal.show();
+                                    localStorage.setItem('domainsTableSearch', globalInput.val());
+                                    updateURL();
+                                }, 300);
+                            });
+
+                            let resetBtn = $(`<button class="btn btn-default btn-sm" style="margin-left:10px; display:none;">{% trans "Reset filters" %}</button>`);
+                            searchDiv.append(resetBtn);
+
+                            resetBtn.on('click', function () {
+                                // global search
+                                globalInput.val('');
+                                api.search('');
+                                clearGlobal.hide();
+
+                                // column searches & footer inputs
+                                api.columns().every(function () {
+                                    let footer = this.footer();
+                                    if (!footer) return;
+                                    let input = footer.querySelector('input');
+                                    if (input) input.value = '';
+                                    let select = footer.querySelector('select');
+                                    if (select) select.value = '';
+                                    this.search('');
+                                });
+
+                                // reset order
+                                api.order(domainsTableDefaultOrder).draw();
+                                saveFiltersToLocalStorage();
+                            });
+
+                            // ===== 3️⃣ Update reset button visibility =====
+                            function updateResetVisibility() {
+                                let hasGlobal = api.search().length > 0;
+                                let hasColumn = false;
+                                api.columns().every(function () {
+                                    if (this.search().length > 0) hasColumn = true;
+                                });
+
+                                let orderChanged = JSON.stringify(api.order()) !== JSON.stringify(domainsTableDefaultOrder);
+
+                                if (hasGlobal || hasColumn || orderChanged) resetBtn.show();
+                                else resetBtn.hide();
+                            }
+
+                            api.on('search.dt draw.dt order.dt', updateResetVisibility);
+                            updateResetVisibility();
+
+                            // ===== 4️⃣ RowGroups collapsible =====
+                            api.on('click', 'tr.dtrg-group', function () {
+                                let groupName = $(this).text().trim();
+                                collapsedGroups[groupName] = !collapsedGroups[groupName];
+                                table.draw(false);
+                            });
+
+                            // ===== 5️⃣ Save/load filters in localStorage & URL =====
+                            function saveFiltersToLocalStorage() {
+                                let filters = {};
+                                api.columns().every(function (i) {
+                                    let footer = this.footer();
+                                    if (!footer) return;
+                                    let input = footer.querySelector('input');
+                                    let select = footer.querySelector('select');
+                                    if (input) filters[i] = input.value;
+                                    if (select) filters[i] = select.value;
+                                });
+                                localStorage.setItem('domainsTableFilters', JSON.stringify(filters));
+                            }
+
+                            function loadFiltersFromLocalStorage() {
+                                let global = localStorage.getItem('domainsTableSearch');
+                                if (global) {
+                                    api.search(global);
+                                    globalInput.val(global);
+                                    clearGlobal.show();
+                                }
+                                let filters = JSON.parse(localStorage.getItem('domainsTableFilters') || '{}');
+                                api.columns().every(function (i) {
+                                    let footer = this.footer();
+                                    if (!footer) return;
+                                    let input = footer.querySelector('input');
+                                    let select = footer.querySelector('select');
+                                    if (input && filters[i] !== undefined) {
+                                        input.value = filters[i];
+                                        if (input.value.length > 0) {
+                                            let clearBtn = footer.querySelector('span.dt-clear-btn');
+                                            if (clearBtn) clearBtn.style.display = 'block';
+                                        }
+                                        this.search(filters[i]);
+                                    }
+                                    if (select && filters[i] !== undefined) {
+                                        select.value = filters[i];
+                                        this.search(filters[i]);
+                                    }
+                                });
+                            }
+
+                            function loadFiltersFromURL() {
+                                let params = new URLSearchParams(window.location.search);
+                                let global = params.get('search');
+                                if (global) {
+                                    api.search(global);
+                                    globalInput.val(global);
+                                    clearGlobal.show();
+                                }
+                                api.columns().every(function (i) {
+                                    let footer = this.footer();
+                                    if (!footer) return;
+                                    let input = footer.querySelector('input');
+                                    let select = footer.querySelector('select');
+                                    let val = params.get('col' + i);
+                                    if (input && val !== null) {
+                                        input.value = val;
+                                        if (input.value.length > 0) {
+                                            let clearBtn = footer.querySelector('span.dt-clear-btn');
+                                            if (clearBtn) clearBtn.style.display = 'block';
+                                        }
+                                        this.search(val);
+                                    }
+                                    if (select && val !== null) {
+                                        select.value = val;
+                                        this.search(val);
+                                    }
+                                });
+                            }
+
+                            function updateURL() {
+                                let params = new URLSearchParams(window.location.search);
+                                params.set('search', api.search());
+                                api.columns().every(function (i) {
+                                    let footer = this.footer();
+                                    if (!footer) return;
+                                    let input = footer.querySelector('input');
+                                    let select = footer.querySelector('select');
+                                    if (input) params.set('col' + i, input.value);
+                                    if (select) params.set('col' + i, select.value);
+                                });
+                                window.history.replaceState({}, '', `${location.pathname}?${params.toString()}`);
+                            }
+
+                            loadFiltersFromLocalStorage();
+                            loadFiltersFromURL();
+                            api.draw(false);
                         },
                         columns: [
                             // Grouping by Own, Private and Public
@@ -481,7 +623,9 @@
                                 }
                             },
                         ]
+
                     });
+
                 });
             </script>
         </div>

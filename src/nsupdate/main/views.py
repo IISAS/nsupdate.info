@@ -919,7 +919,8 @@ class DomainsView(View):
                 "vo": domain.vo.name if domain.vo else None,
                 "comment": domain.comment,
                 "owner": domain.created_by.username,
-                "group_field": "Public" if domain.public else "Owned" if domain.created_by == self.request.user else "Private",
+                "is_owner": domain.created_by == self.request.user,
+                "group_field": "My domains" if domain.created_by == self.request.user else "Public" if domain.public else "Private",
             })
 
         return JsonResponse({

@@ -259,13 +259,29 @@
                 </tfoot>
             </table>
             <script>
+                function renderYesNo(data, type) {
+                    if (type === "display") {
+                        return data ? "{% trans "Yes" %}" : "{% trans "No" %}";
+                    } else if (type === "filter") {
+                        return data ? 1 : 0;
+                    }
+                    return data;
+                }
+
                 $(document).ready(function () {
                     $('#domains-table').DataTable({
                         initComplete: function () {
-                            this.api()
-                                .columns()
-                                .every(function () {
-                                    let column = this;
+                            let table = this.api();
+                            let settings = table.settings()[0];
+                            table.columns().every(function (index) {
+                                let column = this;
+                                let footer = column.footer();
+                                if (!footer) return;
+
+                                let colDef = settings.aoColumns[index];
+
+                                // TEXT filter
+                                if (colDef.filterType === "text") {
                                     let title = column.footer().textContent;
 
                                     // Create input element
@@ -279,14 +295,60 @@
                                             column.search(input.value).draw();
                                         }
                                     });
-                                });
+                                }
+
+                                // YES/NO filter
+                                else if (colDef.filterType === "yesno") {
+                                    let select = document.createElement("select");
+                                    select.innerHTML = `
+                                        <option value="">--</option>
+                                        <option value="1">Yes</option>
+                                        <option value="0">No</option>
+                                    `;
+                                    footer.replaceChildren(select);
+                                    select.addEventListener("change", function () {
+                                        let value = this.value;
+                                        if (value == "") {
+                                            column.search("").draw();
+                                        } else {
+                                            column
+                                                .search("^" + this.value + "$", true, false) // exact match
+                                                .draw();
+                                        }
+                                    });
+                                }
+
+                                // DYNAMIC select
+                                else if (colDef.filterType === "select") {
+                                    let select = document.createElement("select");
+                                    select.innerHTML = `<option value="">All</option>`;
+                                    footer.replaceChildren(select);
+
+                                    column.data().unique().sort().each(function (d) {
+                                        if (d) select.innerHTML += `<option value="${d}">${d}</option>`;
+                                    });
+
+                                    select.addEventListener("change", function () {
+                                        column.search("^" + this.value + "$", true, false).draw();
+                                    });
+                                }
+
+                                // else → no footer filter
+                            });
                         },
                         fixedHeader: {
                             footer: true
                         },
-                        order: [[0, 'asc']],
+                        orderFixed: [[0, 'asc']], // always group first
+                        order: [[2, 'asc']], // initial order by name
                         columnDefs: [
-                            {targets: "_all", className: "dt-left"},
+                            {targets: 1, className: "dt-left"},
+                            {targets: 2, className: "dt-left", filterType: "text"},
+                            {targets: 3, className: "dt-left", filterType: "yesno"},
+                            {targets: 4, className: "dt-left", filterType: "yesno"},
+                            {targets: 5, className: "dt-left", filterType: "text"},
+                            {targets: 6, className: "dt-left", filterType: "text"},
+                            {targets: 7, className: "dt-left", filterType: "text"},
                         ],
                         rowGroup: {
                             dataSrc: "group_field"
@@ -300,7 +362,10 @@
                         },
                         columns: [
                             // Grouping by Own, Private and Public
-                            {data: "group_field", visible: false},
+                            {
+                                data: "group_field",
+                                visible: false
+                            },
                             // ID column (hidden but sortable)
                             {
                                 data: "id",
@@ -312,11 +377,10 @@
                                 orderSequence: ['asc', 'desc'],
                                 data: null,
                                 render: function (data, type, row) {
-                                    if (type === "display") {
+                                    if (type === "display" && row.is_owner) {
                                         // what the user sees in the table
                                         return `<a href="/domain/${row.id}/">${row.name}</a>`;
                                     }
-
                                     // fallback
                                     return row.name;
                                 }
@@ -325,19 +389,13 @@
                             {
                                 orderSequence: ['asc', 'desc'],
                                 data: "public",
-                                render: function (data, type) {
-                                    if (type !== "display") return data;
-                                    return data ? "{% trans "Yes" %}" : "{% trans "No" %}";
-                                }
+                                render: renderYesNo
                             },
                             // ---- Available ----
                             {
                                 orderSequence: ['asc', 'desc'],
                                 data: "available",
-                                render: function (data, type) {
-                                    if (type !== "display") return data;
-                                    return data ? "{% trans "Yes" %}" : "{% trans "No" %}";
-                                }
+                                render: renderYesNo
                             },
                             // ---- Virtual Organization ----
                             {

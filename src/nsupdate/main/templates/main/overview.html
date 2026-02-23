@@ -267,11 +267,12 @@
                     }
                     return data;
                 }
-
                 $(document).ready(function () {
+                    const domainsTableDefaultOrder = [[2, 'asc']];
                     $('#domains-table').DataTable({
                         initComplete: function () {
                             let table = this.api();
+
                             let settings = table.settings()[0];
                             table.columns().every(function (index) {
                                 let column = this;
@@ -335,12 +336,70 @@
 
                                 // else → no footer filter
                             });
+
+                            // RESET FILTERS: Add button next to global search
+                            let searchDiv = $('#domains-table_wrapper .dt-search');
+                            let resetBtn = $(`
+                                <button id="domains-table-reset-filters"
+                                        class="btn btn-default btn-sm"
+                                        style="margin-left:10px; display: none;">
+                                    {% trans "Reset filters" %}
+                                </button>
+                            `);
+                            searchDiv.append(resetBtn);
+                            // RESET FILTERS: Attach click handler
+                            resetBtn.on('click', function () {
+
+                                // Clear global search
+                                table.search('');
+
+                                // Clear column searches
+                                table.columns().search('');
+
+                                // Clear footer inputs/selects
+                                table.columns().every(function () {
+                                    let footer = this.footer();
+                                    if (!footer) return;
+                                    let input = footer.querySelector('input');
+                                    if (input) input.value = '';
+                                    let select = footer.querySelector('select');
+                                    if (select) select.value = '';
+                                });
+
+                                // Reset order
+                                table.order([[2, 'asc']]).draw();
+                            });
+                            // RESET FILTERS: update button visibility
+                            function updateResetVisibility() {
+                                // Check if global search is active
+                                let hasGlobalSearch = table.search().length > 0;
+                                // Check if any column search is active
+                                let hasColumnSearch = false;
+                                table.columns().every(function () {
+                                    if (this.search().length > 0) {
+                                        hasColumnSearch = true;
+                                    }
+                                });
+                                // Check if the default ordering has changed
+                                let defaultOrder = domainsTableDefaultOrder;
+                                let currentOrder = table.order();
+                                let orderChanged = JSON.stringify(currentOrder) !== JSON.stringify(defaultOrder);
+
+                                if (hasGlobalSearch || hasColumnSearch || orderChanged) {
+                                    resetBtn.show();
+                                } else {
+                                    resetBtn.hide();
+                                }
+                            }
+                            // RESET FILTERS: Monitor all searches
+                            table.on('search.dt', updateResetVisibility);
+                            table.on('draw.dt', updateResetVisibility);
                         },
                         fixedHeader: {
                             footer: true
                         },
                         orderFixed: [[0, 'asc']], // always group first
-                        order: [[2, 'asc']], // initial order by name
+                        order: domainsTableDefaultOrder, // initial order by name
                         columnDefs: [
                             {targets: 1, className: "dt-left"},
                             {targets: 2, className: "dt-left", filterType: "text"},

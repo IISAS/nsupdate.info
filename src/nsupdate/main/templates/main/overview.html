@@ -279,28 +279,7 @@
                         fixedHeader: {footer: true},
                         orderFixed: [[0, 'asc']], // always group first
                         order: domainsTableDefaultOrder,
-                        rowGroup: {
-                            dataSrc: 'group_field',
-
-                            startRender: function (rows, group) {
-
-                                let collapsed = !!collapsedGroups[group];
-
-                                // Hide/show rows inside group
-                                rows.nodes().each(function (r) {
-                                    r.style.display = collapsed ? 'none' : '';
-                                });
-
-                                // Create clickable group header row
-                                return $('<tr/>')
-                                    .append('<td colspan="8" style="cursor:pointer;">'
-                                        + (collapsed ? '▶ ' : '▼ ')
-                                        + group + ' (' + rows.count() + ')'
-                                        + '</td>')
-                                    .attr('data-group', group)
-                                    .toggleClass('collapsed', collapsed);
-                            }
-                        },
+                        rowGroup: {dataSrc: 'group_field'},
                         language: {
                             emptyTable: "{% trans "No domains yet." %}",
                             zeroRecords: "{% trans "No matching domains found" %}"
@@ -464,13 +443,6 @@
 
                             api.on('search.dt draw.dt order.dt', updateResetVisibility);
                             updateResetVisibility();
-
-                            // ===== 4️⃣ RowGroups collapsible =====
-                            api.on('click', 'tr.dtrg-group', function () {
-                                let groupName = $(this).text().trim();
-                                collapsedGroups[groupName] = !collapsedGroups[groupName];
-                                table.draw(false);
-                            });
 
                             // ===== 5️⃣ Save/load filters in localStorage & URL =====
                             function saveFiltersToLocalStorage() {

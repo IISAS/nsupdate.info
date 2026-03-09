@@ -873,7 +873,7 @@ class HostsView(View):
         for host in queryset:
             data.append({
                 "id": host.pk,
-                "fqdn": host.get_fqdn(),
+                "fqdn": f"{host.get_fqdn()}",
                 "wildcard": host.wildcard,
                 "comment": host.comment,
                 "available": host.available,

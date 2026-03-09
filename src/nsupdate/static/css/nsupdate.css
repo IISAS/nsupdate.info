@@ -62,3 +62,16 @@ html, body {
 .dt-clear-btn:hover {
     color: #333;
 }
+
+/* While loading → center spinner */
+.cell.loading {
+    display: block;
+    text-align: center;
+    vertical-align: middle;
+}
+
+/* After data loaded → left align */
+.cell.loaded {
+    display: block;
+    text-align: left;
+}

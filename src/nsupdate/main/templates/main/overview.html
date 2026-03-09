@@ -136,9 +136,8 @@
                                 render: function (data, type) {
                                     if (type !== "display") return data;
                                     return `
-                                    <span class="ipv4-cell"
-                                          data-host-id="${data}">
-                                        Loading...
+                                    <span class="ipv4-cell cell loading" data-host-id="${data}">
+                                        <span class="glyphicon glyphicon-refresh spinning"></span>
                                     </span>
                                 `;
                                 }
@@ -151,9 +150,8 @@
                                 render: function (data, type) {
                                     if (type !== "display") return data;
                                     return `
-                                    <span class="ipv6-cell"
-                                          data-host-id="${data}">
-                                        Loading...
+                                    <span class="ipv6-cell cell loading" data-host-id="${data}">
+                                        <span class="glyphicon glyphicon-refresh spinning"></span>
                                     </span>
                                 `;
                                 }
@@ -187,7 +185,9 @@
                         html += "<br>({% trans 'Unknown' %})";
                     }
 
-                    cell.html(html);
+                    cell.removeClass('loading')
+                        .addClass('loaded')
+                        .html(html);
                 }
 
                 $('#hosts-table').on('draw.dt', function () {

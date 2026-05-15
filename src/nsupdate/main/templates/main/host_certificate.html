@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% load i18n %}
+{% load bootstrap %}
+{% load tz %}
+
+{% block content %}
+{% with fqdn=host.get_fqdn %}
+
+<div class="row">
+<h3>{{ fqdn }}</h3>
+<h3>{% trans 'SSL Certificate' %}</h3>
+</div>
+
+<div class="row">
+    {% if cert %}
+        <!-- Subject -->
+        <h4 class="mt-4">{% trans "Subject" %}</h4>
+        <table class="table table-bordered table-sm">
+            {% for key, value in cert.subject.items %}
+                <tr>
+                    <th class="w-25">{{ key }}</th>
+                    <td>{{ value }}</td>
+                </tr>
+            {% endfor %}
+        </table>
+
+        <!-- Issuer -->
+        <h4 class="mt-4">{% trans "Issuer" %}</h4>
+        <table class="table table-bordered table-sm">
+            {% for key, value in cert.issuer.items %}
+                <tr>
+                    <th>{{ key }}</th>
+                    <td>{{ value }}</td>
+                </tr>
+            {% endfor %}
+        </table>
+
+        <!-- Validity -->
+        <h4 class="mt-4">{% trans "Validity Period" %}</h4>
+        <table class="table table-bordered table-sm">
+            <tr>
+                <th class="w-25">{% trans "Not Before" %}</th>
+                {%  if cert.not_before > now %}
+                <td class="alert-danger">
+                    {{ cert.not_before }}
+                </td>
+                {% else %}
+                <td class="alert-success">
+                    {{ cert.not_before }}
+                </td>
+                {% endif %}
+            </tr>
+            <tr>
+                <th>{% trans "Not After" %}</th>
+                {% if cert.not_after < now %}
+                    <td class="alert-danger">
+                        {{ cert.not_after }} (expired)
+                    </td>
+                {% elif cert_days_to_expire <= 30 %}
+                    <td class="alert-warning">
+                        {{ cert.not_after }}
+                    </td>
+                {% else %}
+                    <td class="alert-success">
+                        {{ cert.not_after }}
+                    </td>
+                {% endif %}
+            </tr>
+        </table>
+
+        <!-- Fingerprints -->
+        <h4 class="mt-4">{% trans "Fingerprints" %}</h4>
+        <table class="table table-bordered table-sm">
+            <tr>
+                <th class="w-25">SHA-256</th>
+                <td>
+                    <code id="fp-sha256">{{ cert.fingerprint_sha256 }}</code>
+                    <button
+                            id="copy-btn-fp-sha256"
+                            class="btn btn-clipboard btn-sm"
+                            onclick="copyToClipboard('fp-sha256', 'copy-btn-fp-sha256')">
+                        <i class="fa fa-copy"></i> {% translate 'copy' %}
+                    </button>
+                </td>
+            </tr>
+            <tr>
+                <th>SHA-1</th>
+                <td>
+                    <code id="fp-sha1">{{ cert.fingerprint_sha1 }}</code>
+                    <button
+                            id="copy-btn-fp-sha1"
+                            class="btn btn-clipboard btn-sm"
+                            onclick="copyToClipboard('fp-sha1', 'copy-btn-fp-sha1')">
+                        <i class="fa fa-copy"></i> {% translate 'copy' %}
+                    </button>
+                </td>
+            </tr>
+            <tr>
+                <th>Serial Number</th>
+                <td>
+                    <code id="cert-serial">{{ cert.serial_number }}</code>
+                    <button
+                            id="copy-btn-cert-serial"
+                            class="btn btn-clipboard btn-sm"
+                            onclick="copyToClipboard('cert-serial', 'copy-btn-cert-serial')">
+                        <i class="fa fa-copy"></i> {% translate 'copy' %}
+                    </button>
+                </td>
+            </tr>
+        </table>
+
+        <!-- Public Key -->
+        <h4 class="mt-4">{% trans "Public Key" %}</h4>
+        <table class="table table-bordered table-sm">
+            <tr>
+                <th class="w-25">{% trans "Key Type" %}</th>
+                <td>{{ cert.public_key_type }}</td>
+            </tr>
+            <tr>
+                <th>{% trans "Key Size" %}</th>
+                <td>{{ cert.public_key_bits }} bits</td>
+            </tr>
+        </table>
+
+        <!-- SANs -->
+        {% if cert.sans %}
+        <h4 class="mt-4">{% trans "Subject Alternative Names (SAN)" %}</h4>
+        <ul>
+            {% for san in cert.sans %}
+                <li>{{ san }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+
+{#            <!-- Full PEM -->#}
+{#            <h4 class="mt-4">{% trans "Full Certificate (PEM)" %}</h4>#}
+{#            <pre style="white-space: pre-line; width: fit-content;">{{ cert.pem }}</pre>#}
+
+        <a href="{% url 'host_certificate_download' host.pk %}" class="btn btn-primary"><i class="fa fa-download"></i>&nbsp;Download</a>
+        <a href="{% url 'host_upload_csr' host.pk %}" class="btn btn-primary"><i class="fa fa-upload"></i>&nbsp;Upload new CSR</a>
+{#        <a href="{% url 'host_view' host.pk %}" class="btn btn-default"><i class="fa fa-gears"></i>&nbsp;Host configuration</a>#}
+
+    {% endif %}
+</div>
+
+<script>
+function copyToClipboard(sourceId, buttonId) {
+    const text = document.getElementById(sourceId).innerText;
+    const button = document.getElementById(buttonId);
+
+    navigator.clipboard.writeText(text).then(() => {
+        const original = button.innerHTML;
+        button.innerHTML = "Copied!";
+        button.disabled = true;
+
+        setTimeout(() => {
+            button.innerHTML = original;
+            button.disabled = false;
+        }, 1500);
+    });
+}
+</script>
+
+{% endwith %}
+{% endblock %}

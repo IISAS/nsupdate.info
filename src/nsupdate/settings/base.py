@@ -50,7 +50,8 @@ BAD_AGENTS = set([])  # list can have str elements
 
 # these IPAdresses and/or IPNetworks are unacceptable for /nic/update service
 # like e.g. IPs of servers related to illegal activities
-from netaddr import IPSet, IPAddress, IPNetwork
+from netaddr import IPSet
+
 BAD_IPS_HOST = IPSet([])  # inner list can have IPAddress and IPNetwork elements
 
 # when encountering these hostnames (fqdn), block them early/silently from
@@ -133,6 +134,9 @@ TEMPLATES = [
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
             # '/where/you/have/additional/templates',
+            os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "templates")
+            )
         ],
         'OPTIONS': {
             'context_processors': [
@@ -143,14 +147,14 @@ TEMPLATES = [
                 'django.template.context_processors.i18n',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
+                'social_django.context_processors.backends',
+                'social_django.context_processors.login_redirect',
                 'nsupdate.context_processors.add_settings',
                 'nsupdate.context_processors.update_ips',
                 # 'django.template.context_processors.media',
                 # 'django.template.context_processors.static',
                 # 'django.template.context_processors.tz',
                 'django.contrib.messages.context_processors.messages',
-                'social_django.context_processors.backends',
-                'social_django.context_processors.login_redirect',
 
             ],
             'loaders': [
@@ -195,9 +199,17 @@ INSTALLED_APPS = (
     'nsupdate.api',
     'nsupdate.main',
     'bootstrapform',
+    'dal',
+    'dal_select2',
+    'dal_queryset_sequence',
     'django.contrib.admin',
     'registration',
     'django_extensions',
+    'django_filters',
+    'rest_framework',
+    'drf_spectacular',
+    'drf_spectacular_sidecar',
+    'nsupdate.auth.drf_social_oauth2.SocialOauth2AppConfig',
 )
 
 # A sample logging configuration.
@@ -317,6 +329,11 @@ AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend',
 )
 
+SOCIAL_AUTH_ISSUER_BACKEND_MAP = {
+    'https://aai.egi.eu/oidc': 'egi',
+    'https://aai-dev.egi.eu/auth/realms/egi': 'egi',
+}
+
 SOCIAL_AUTH_LOGIN_REDIRECT_URL = '/'
 #    Used to redirect the user once the auth process ended successfully.
 #    The value of ?next=/foo is used if it was present
@@ -419,6 +436,55 @@ SOCIAL_AUTH_USERNAME_IS_FULL_EMAIL = True
 #    In this case foo field's value will be stored when user follows this link
 #    <a href="{% url socialauth_begin 'github' %}?foo=bar">...</a>.
 
+SOCIAL_AUTH_PIPELINE = (
+    # Get the information we can about the user and return it in a simple
+    # format to create the user instance later. In some cases the details are
+    # already part of the auth response from the provider, but sometimes this
+    # could hit a provider API.
+    'social_core.pipeline.social_auth.social_details',
+
+    # Get the social uid from whichever service we're authing thru. The uid is
+    # the unique identifier of the given user in the provider.
+    'social_core.pipeline.social_auth.social_uid',
+
+    # Verifies that the current auth process is valid within the current
+    # project, this is where emails and domains whitelists are applied (if
+    # defined).
+    'social_core.pipeline.social_auth.auth_allowed',
+
+    # Checks if the current social-account is already associated in the site.
+    'social_core.pipeline.social_auth.social_user',
+
+    # Make up a username for this person, appends a random string at the end if
+    # there's any collision.
+    'social_core.pipeline.user.get_username',
+
+    # Send a validation email to the user to verify its email address.
+    # Disabled by default.
+    # 'social_core.pipeline.mail.mail_validation',
+
+    # Associates the current social details with another user account with
+    # a similar email address. Disabled by default.
+    # 'social_core.pipeline.social_auth.associate_by_email',
+
+    # Create a user account if we haven't found one yet.
+    'social_core.pipeline.user.create_user',
+
+    # Create the record that associates the social account with the user.
+    'social_core.pipeline.social_auth.associate_user',
+
+    # Populate the extra_data field in the social record with the values
+    # specified by settings (and the default ones like access_token, etc).
+    'social_core.pipeline.social_auth.load_extra_data',
+
+    # resolve user's membership in virtual organizations defined
+    # in the eduperson_entitlement field of the extra_data
+    'nsupdate.main.pipeline.sync_virtual_organizations',
+
+    # Update the user record with any changed info from the auth service.
+    'social_core.pipeline.user.user_details',
+)
+
 # we need slightly different classes for bootstrap3 than the default ones
 from django.contrib.messages import constants
 MESSAGE_TAGS = {
@@ -446,3 +512,45 @@ LANGUAGES = (
 
 # silences 1_6.W001 warning you get without this:
 TEST_RUNNER = 'django.test.runner.DiscoverRunner'
+
+ACME_DIRECTORY_URL = os.getenv('DJANGO_ACME_DIRECTORY_URL')
+EAB_KID = os.getenv('DJANGO_EAB_KID')
+EAB_HMAC_KEY = os.getenv('DJANGO_EAB_HMAC_KEY')
+
+REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'nsupdate.auth.drf_social_oauth2.authentication.SocialOAuth2Authentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    ],
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 10,
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Dynamic DNS API',
+    'DESCRIPTION': 'Schema for Dynamic DNS API',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SECURITY': [{'SocialOAuth2Auth': []}],
+    'SWAGGER_UI_SETTINGS': {
+        'persistAuthorization': True,
+        'withCredentials': True,
+    },
+    'AUTHENTICATION_WHITELIST': [
+        'nsupdate.auth.drf_social_oauth2.authentication.SocialOAuth2Authentication'
+    ]
+}

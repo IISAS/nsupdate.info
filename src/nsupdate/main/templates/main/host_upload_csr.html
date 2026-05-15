@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% load i18n %}{% load bootstrap %}
+
+{% block content %}
+{% with fqdn=host.get_fqdn %}
+
+<div class="row">
+<h3>{{ fqdn }}</h3>
+<h3>{% trans 'SSL Certificate' %}</h3>
+<p>
+    {% blocktrans %}
+        An SSL certificate cannot be issued without a corresponding Certificate Signing Request (CSR).
+Please generate a CSR for this host and upload it using the form below to proceed with the certificate issuance process.
+    {% endblocktrans %}
+</p>
+</div>
+
+<div class="row">
+    <h4>{% trans "1. Generate Certificate Sign Request (CSR)" %}</h4>
+    <div class="well-sm">
+        <p>
+            {% blocktrans %}
+                Use the following OpenSSL command to generate an RSA private key <code>{{ fqdn }}.key</code> and a
+                Certificate Signing Request <code>{{ fqdn }}.csr</code> for the host.
+            {% endblocktrans %}
+        </p>
+        <pre id="csr-script" style="white-space: pre-line;">
+            openssl req \
+              -new \
+              -newkey rsa:2048 \
+              -nodes \
+              -out {{ fqdn }}.csr \
+              -keyout {{ fqdn }}.key \
+              -subj "/C=SK/L=Bratislava/O=Ustav informatiky SAV/CN={{ fqdn }}"{% if host.wildcard %} \
+              -addext "subjectAltName=DNS:{{ fqdn }},DNS:*.{{ fqdn }}"{% endif %}
+        </pre>
+        <div class="text-right" style="margin-top: 10px;">
+            <button id="copy-btn" class="btn btn-clipboard btn-sm" onclick="copyScript()">
+                <i class="fa fa-copy"></i>&nbsp;{% trans "Copy to clipboard" %}
+            </button>
+        </div>
+    </div>
+</div>
+<div class="row">
+    <h4>2. {% trans 'Upload generated CSR file' %}</h4>
+    <div class="well-sm">
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button class="btn btn-primary" type="submit"><i class="fa fa-upload"></i>&nbsp;Upload</button>
+{#            <button class="btn btn-default" type="button" onclick="history.back()">Cancel</button>#}
+        </form>
+    </div>
+</div>
+
+<div class="row">
+</div>
+
+<script>
+function copyScript() {
+    const text = document.getElementById("csr-script").innerText;
+    const button = document.getElementById("copy-btn");
+
+    navigator.clipboard.writeText(text).then(() => {
+        const original = button.innerHTML;
+        button.innerHTML = "Copied!";
+        button.disabled = true;
+
+        setTimeout(() => {
+            button.innerHTML = original;
+            button.disabled = false;
+        }, 1500);
+    });
+}
+</script>
+
+{% endwith %}
+{% endblock %}

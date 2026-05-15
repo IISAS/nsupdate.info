@@ -8,9 +8,11 @@
                 {% trans "Your Hosts" %}
                 <a href="{% url 'add_host' %}" class="btn btn-primary btn-sm">{% trans "Add Host" %}</a>
             </h3>
-            <table class="table">
-            <thead>
+
+            <table id="hosts-table" class="table table-striped table-bordered" style="width:100%">
+                <thead>
                 <tr>
+                    <th>{% trans "ID" %}</th>
                     <th>
                         {% trans "Host" %}
                         <br>
@@ -35,91 +37,569 @@
                         {% trans "(last update)" %}
                     </th>
                 </tr>
-            </thead>
-            {% for host in hosts %}
-                <tr>
-                    <td><a href="{% url 'host_view' host.pk %}">{{ host.get_fqdn }}</a>{% include "main/wildcard_tag.html" %}
-                        <br>
-                        {{ host.comment }}
-                    </td>
-                    <td>{{ host.available|yesno }}</td>
-                    <td>{{ host.client_faults }} / {{ host.server_faults }}
-                        {% if host.abuse_blocked %}
-                            <br><span class="label label-danger">{% trans "Abuse-Blocked" %}</span>
-                        {% elif host.abuse %}
-                            <br><span class="label label-warning">{% trans "Abuse" %}</span>
-                        {% endif %}
-                    </td>
-                    {% with ipv4=host.get_ipv4 %}
-                    <td>{{ ipv4|default_if_none:_("none")}}
-                        <br>
-                        {% if host.last_update_ipv4 and ipv4 %}
-                          ({{ host.last_update_ipv4|naturaltime }},
-                          {% if not host.tls_update_ipv4 %}
-                          <span class="label label-warning">{% trans "no" %} {% else %}
-                          <span class="label label-success">{% endif %}{% trans "TLS" %}</span>)
-                        {% elif ipv4 %}
-                          ({% trans "unknown" %})
-                        {% endif %}
-                    {% endwith %}
-                    </td>
-                    {% with ipv6=host.get_ipv6 %}
-                    <td>{{ ipv6|default_if_none:_("none") }}
-                        <br>
-                        {% if host.last_update_ipv6 and ipv6 %}
-                          ({{ host.last_update_ipv6|naturaltime }},
-                          {% if not host.tls_update_ipv6 %}
-                          <span class="label label-warning">{% trans "no" %} {% else %}
-                          <span class="label label-success">{% endif %}{% trans "TLS" %}</span>)
-                        {% elif ipv6 %}
-                          ({% trans "unknown" %})
-                        {% endif %}
-                    {% endwith %}
-                    </td>
-                </tr>
-            {% empty %}
-                <tr><td colspan="5">{% trans "No hosts yet." %}</td></tr>
-            {% endfor %}
+                </thead>
             </table>
+            <script>
+                $(document).ready(function () {
+                    $('#hosts-table').DataTable({
+                        order: [[1, 'asc']],
+                        columnDefs: [
+                            {targets: "_all", className: "dt-left"},
+                        ],
+                        processing: true,   // shows "Processing..."
+                        serverSide: false,   // use Django backend pagination
+                        ajax: "{% url 'hosts' %}",
+                        language: {
+                            emptyTable: "{% trans "No hosts yet." %}",
+                            zeroRecords: "{% trans "No matching hosts found" %}",
+                        },
+                        columns: [
+                            // ID column (hidden but sortable)
+                            {
+                                data: "id",
+                                visible: false,     // hide from UI
+                                searchable: false   // optional
+                            },
+                            // ---- FQDN + comment ----
+                            {
+                                orderSequence: ['asc', 'desc'],
+                                data: null,
+                                render: function (data, type, row) {
+                                    if (type === "display") {
+                                        // what the user sees in the table
+                                        return `<a href="/host/${row.id}/">${row.fqdn}</a>`
+                                            + (row.wildcard ? '&nbsp;<span class="label label-primary">wildcard</span>' : '')
+                                            + `<br>${row.comment ?? ""}`;
+                                    }
+
+                                    // what is used for search and sorting
+                                    if (type === "filter") {
+                                        // search in fqdn + comment
+                                        return `${row.fqdn} ${row.comment ?? ""}`;
+                                    }
+
+                                    if (type === "sort") {
+                                        // sort by fqdn only
+                                        return row.fqdn;
+                                    }
+
+                                    // fallback
+                                    return row.fqdn;
+                                }
+                            },
+                            // ---- Available ----
+                            {
+                                orderSequence: ['asc', 'desc'],
+                                data: "available",
+                                render: function (data, type) {
+                                    if (type !== "display") return data;
+                                    return data ? "{% trans "Yes" %}" : "{% trans "No" %}";
+                                }
+                            },
+
+                            // ---- Server faults + Abuse ----
+                            {
+                                orderSequence: ['desc', 'asc'],  // highest first makes more sense
+                                data: null,
+                                render: function (data, type, row) {
+
+                                    // ---- SORTING / FILTERING VALUE ----
+                                    if (type !== "display") {
+
+                                        let faults = row.client_faults + row.server_faults;
+                                        let abuseBlocked = row.abuse_blocked ? 1 : 0;
+                                        let abuse = row.abuse ? 1 : 0;
+
+                                        // Weighted priority calculation
+                                        return faults * 1000000
+                                            + abuseBlocked * 1000
+                                            + abuse;
+                                    }
+
+                                    // ---- DISPLAY VALUE ----
+                                    let html = `${row.client_faults} / ${row.server_faults}`;
+
+                                    if (row.abuse_blocked) {
+                                        html += `<br><span class="label label-danger">{% trans 'Abuse-Blocked' %}</span>`;
+                                    } else if (row.abuse) {
+                                        html += `<br><span class="label label-warning">{% trans 'Abuse' %}</span>`;
+                                    }
+
+                                    return html;
+                                }
+                            },
+
+                            // IPv4
+                            {
+                                orderSequence: ['asc', 'desc'],
+                                data: "id",
+                                render: function (data, type) {
+                                    if (type !== "display") return data;
+                                    return `
+                                    <span class="ipv4-cell cell loading" data-host-id="${data}">
+                                        <span class="glyphicon glyphicon-refresh spinning"></span>
+                                    </span>
+                                `;
+                                }
+                            },
+
+                            // IPv6
+                            {
+                                orderSequence: ['asc', 'desc'],
+                                data: "id",
+                                render: function (data, type) {
+                                    if (type !== "display") return data;
+                                    return `
+                                    <span class="ipv6-cell cell loading" data-host-id="${data}">
+                                        <span class="glyphicon glyphicon-refresh spinning"></span>
+                                    </span>
+                                `;
+                                }
+                            }
+                        ]
+                    });
+                });
+
+                function renderIpAddressCell(cell, data) {
+
+                    let html = "";
+
+                    html += data.address == null
+                        ? "{% trans 'None' %}"
+                        : data.address;
+
+                    if (data.last_update && data.address) {
+
+                        html += "<br>(" + data.last_update_display + ", ";
+
+                        if (!data.tls_update) {
+                            html += "<span class=\"label label-warning\">{% trans 'no' %}";
+                        } else {
+                            html += "<span class=\"label label-success\">";
+                        }
+
+                        html += "{% trans 'TLS' %}</span>)";
+
+                    } else if (data.address != null) {
+
+                        html += "<br>({% trans 'Unknown' %})";
+                    }
+
+                    cell.removeClass('loading')
+                        .addClass('loaded')
+                        .html(html);
+                }
+
+                $('#hosts-table').on('draw.dt', function () {
+
+                    $('.ipv4-cell').each(function () {
+
+                        let cell = $(this);
+                        let hostId = cell.data('host-id');
+
+                        if (!cell.data('loaded')) {
+                            cell.data('loaded', true);
+                            fetch(`/host/${hostId}/ipv4`)
+                                .then(response => response.json())
+                                .then(data => renderIpAddressCell(cell, data))
+                                .catch(() => {
+                                    cell.html('<span class="text-danger">{% trans "Error" %}</span>');
+                                });
+                        }
+                    });
+
+                    $('.ipv6-cell').each(function () {
+
+                        let cell = $(this);
+                        let hostId = cell.data('host-id');
+
+                        if (!cell.data('loaded')) {
+                            cell.data('loaded', true);
+                            fetch(`/host/${hostId}/ipv6`)
+                                .then(response => response.json())
+                                .then(data => renderIpAddressCell(cell, data))
+                                .catch(() => {
+                                    cell.html('<span class="text-danger">{% trans "Error" %}</span>');
+                                });
+                        }
+                    });
+                });
+            </script>
         </div>
         <div class="col-md-12">
             <h3>
                 {% trans "Domains (yours first, then public)" %}
-                <a href="{% url 'add_domain' %}" class="btn btn-default btn-sm">{% trans "Add Domain" %}</a>
+                <a href="{% url 'add_domain' %}" class="btn btn-primary btn-sm">{% trans "Add Domain" %}</a>
             </h3>
-            <table class="table">
-            <thead>
+
+            <table id="domains-table" class="table table-striped table-bordered" style="width:100%">
+                <thead>
                 <tr>
+                    <th>{% trans "Visibility" %}</th>
+                    <th>{% trans "ID" %}</th>
                     <th>{% trans "Domain" %}</th>
                     <th>{% trans "Public" %}</th>
                     <th>{% trans "Available" %}</th>
+                    <th>{% trans "Virtual Organization" %}</th>
                     <th>{% trans "Owner" %}</th>
                     <th>{% trans "Comment" %}</th>
                 </tr>
-            </thead>
-            {% for domain in your_domains %}
+                </thead>
+                <tfoot>
                 <tr>
-                    <td><a href="{% url 'domain_view' domain.pk %}">{{ domain.name }}</a></td>
-                    <td>{{ domain.public|yesno }}</td>
-                    <td>{{ domain.available|yesno }}</td>
-                    <td>{{ domain.created_by }}</td>
-                    <td>{{ domain.comment }}</td>
+                    <th>{% trans "Visibility" %}</th>
+                    <th>{% trans "ID" %}</th>
+                    <th>{% trans "Domain" %}</th>
+                    <th>{% trans "Public" %}</th>
+                    <th>{% trans "Available" %}</th>
+                    <th>{% trans "Virtual Organization" %}</th>
+                    <th>{% trans "Owner" %}</th>
+                    <th>{% trans "Comment" %}</th>
                 </tr>
-            {% empty %}
-                <tr><td colspan="5">{% trans "No domains from you yet." %}</td></tr>
-            {% endfor %}
-            {% for domain in public_domains %}
-                <tr>
-                    <td>{{ domain.name }}</td>
-                    <td>{{ domain.public|yesno }}</td>
-                    <td>{{ domain.available|yesno }}</td>
-                    <td>{{ domain.created_by }}</td>
-                    <td>{{ domain.comment }}</td>
-                </tr>
-            {% empty %}
-                <tr><td colspan="5">{% trans "No public domains from other users yet." %}</td></tr>
-            {% endfor %}
+                </tfoot>
             </table>
+            <script>
+                function renderYesNo(data, type) {
+                    if (type === "display") {
+                        return data ? "{% trans "Yes" %}" : "{% trans "No" %}";
+                    } else if (type === "filter") {
+                        return data ? 1 : 0;
+                    }
+                    return data;
+                }
+
+                $(document).ready(function () {
+
+                    const domainsTableDefaultOrder = [[2, 'asc']]; // initial sort by name
+                    let collapsedGroups = {};
+                    let table = $('#domains-table').DataTable({
+                        ajax: "{% url 'domains' %}",
+                        processing: true,
+                        serverSide: false,
+                        fixedHeader: {footer: true},
+                        orderFixed: [[0, 'asc']], // always group first
+                        order: domainsTableDefaultOrder,
+                        rowGroup: {dataSrc: 'group_field'},
+                        language: {
+                            emptyTable: "{% trans "No domains yet." %}",
+                            zeroRecords: "{% trans "No matching domains found" %}"
+                        },
+                        columnDefs: [
+                            {targets: 1, className: "dt-left"},
+                            {targets: 2, className: "dt-left", filterType: "text"},
+                            {targets: 3, className: "dt-left", filterType: "yesno"},
+                            {targets: 4, className: "dt-left", filterType: "yesno"},
+                            {targets: 5, className: "dt-left", filterType: "text"},
+                            {targets: 6, className: "dt-left", filterType: "text"},
+                            {targets: 7, className: "dt-left", filterType: "text"},
+                        ],
+                        initComplete: function () {
+                            let api = this.api();
+
+                            // ===== 1️⃣ Add footer filters =====
+                            api.columns().every(function (index) {
+                                let column = this;
+                                let footer = column.footer();
+                                if (!footer) return;
+
+                                let colDef = api.settings()[0].aoColumns[index];
+
+                                // TEXT FILTER with clear button and debounce
+                                if (colDef.filterType === "text") {
+                                    let wrapper = document.createElement('div');
+                                    wrapper.className = 'dt-input-wrapper';
+
+                                    let input = document.createElement('input');
+                                    input.className = 'form-control input-sm';
+                                    input.placeholder = footer.textContent;
+
+                                    let clearBtn = document.createElement('span');
+                                    clearBtn.className = 'dt-clear-btn';
+                                    clearBtn.innerHTML = '&times';
+                                    clearBtn.style.display = 'none';
+
+                                    wrapper.appendChild(input);
+                                    wrapper.appendChild(clearBtn);
+                                    footer.replaceChildren(wrapper);
+
+                                    // Debounce function
+                                    let debounceTimer;
+                                    input.addEventListener('keyup', function () {
+                                        clearTimeout(debounceTimer);
+                                        debounceTimer = setTimeout(() => {
+                                            column.search(input.value).draw();
+                                            clearBtn.style.display = input.value ? 'block' : 'none';
+                                            saveFiltersToLocalStorage();
+                                            updateURL();
+                                        }, 300);
+                                    });
+
+                                    clearBtn.addEventListener('click', function () {
+                                        input.value = '';
+                                        column.search('').draw();
+                                        clearBtn.style.display = 'none';
+                                        saveFiltersToLocalStorage();
+                                        updateURL();
+                                        input.focus();
+                                    });
+                                }
+
+                                // YES/NO filter (bootstrap)
+                                else if (colDef.filterType === "yesno") {
+                                    let select = document.createElement('select');
+                                    select.classList.add('form-control', 'input-sm');
+                                    select.innerHTML = `<option value="">All</option><option value="1">Yes</option><option value="0">No</option>`;
+                                    footer.replaceChildren(select);
+                                    select.addEventListener('change', function () {
+                                        let val = this.value;
+                                        column.search(val ? '^' + val + '$' : '', true, false).draw();
+                                        saveFiltersToLocalStorage();
+                                        updateURL();
+                                    });
+                                }
+
+                                // DYNAMIC select (text-based select)
+                                else if (colDef.filterType === "select") {
+                                    let select = document.createElement('select');
+                                    select.classList.add('form-control', 'input-sm');
+                                    select.innerHTML = '<option value="">All</option>';
+                                    column.data().unique().sort().each(function (d) {
+                                        if (d) select.innerHTML += `<option value="${d}">${d}</option>`;
+                                    });
+                                    footer.replaceChildren(select);
+                                    select.addEventListener('change', function () {
+                                        let val = this.value;
+                                        column.search(val ? '^' + val + '$' : '', true, false).draw();
+                                        saveFiltersToLocalStorage();
+                                        updateURL();
+                                    });
+                                }
+                            });
+
+                            // ===== 2️⃣ Add reset button next to global search with clear button =====
+                            let searchDiv = $('#domains-table_wrapper .dt-search');
+                            let globalInput = $('#domains-table_wrapper .dt-search input');
+
+                            globalInput.wrap('<div class="dt-input-wrapper"></div>');
+                            let clearGlobal = $('<span class="dt-clear-btn">&times;</span>');
+                            globalInput.after(clearGlobal);
+
+                            clearGlobal.on('click', function () {
+                                globalInput.val('');
+                                localStorage.setItem('domainsTableSearch', globalInput.val());
+                                api.search('').draw();
+                                clearGlobal.hide();
+                            });
+
+                            let debounceTimer;
+                            globalInput.on('keyup', function () {
+                                clearTimeout(debounceTimer);
+                                debounceTimer = setTimeout(() => {
+                                    api.search(globalInput.val()).draw();
+                                    if (globalInput.val()) clearGlobal.show();
+                                    localStorage.setItem('domainsTableSearch', globalInput.val());
+                                    updateURL();
+                                }, 300);
+                            });
+
+                            let resetBtn = $(`<button class="btn btn-default btn-sm" style="margin-left:10px; display:none;">{% trans "Reset filters" %}</button>`);
+                            searchDiv.append(resetBtn);
+
+                            resetBtn.on('click', function () {
+                                // global search
+                                globalInput.val('');
+                                api.search('');
+                                clearGlobal.hide();
+
+                                // column searches & footer inputs
+                                api.columns().every(function () {
+                                    let footer = this.footer();
+                                    if (!footer) return;
+                                    let input = footer.querySelector('input');
+                                    if (input) input.value = '';
+                                    let select = footer.querySelector('select');
+                                    if (select) select.value = '';
+                                    this.search('');
+                                });
+
+                                // reset order
+                                api.order(domainsTableDefaultOrder).draw();
+                                saveFiltersToLocalStorage();
+                            });
+
+                            // ===== 3️⃣ Update reset button visibility =====
+                            function updateResetVisibility() {
+                                let hasGlobal = api.search().length > 0;
+                                let hasColumn = false;
+                                api.columns().every(function () {
+                                    if (this.search().length > 0) hasColumn = true;
+                                });
+
+                                let orderChanged = JSON.stringify(api.order()) !== JSON.stringify(domainsTableDefaultOrder);
+
+                                if (hasGlobal || hasColumn || orderChanged) resetBtn.show();
+                                else resetBtn.hide();
+                            }
+
+                            api.on('search.dt draw.dt order.dt', updateResetVisibility);
+                            updateResetVisibility();
+
+                            // ===== 5️⃣ Save/load filters in localStorage & URL =====
+                            function saveFiltersToLocalStorage() {
+                                let filters = {};
+                                api.columns().every(function (i) {
+                                    let footer = this.footer();
+                                    if (!footer) return;
+                                    let input = footer.querySelector('input');
+                                    let select = footer.querySelector('select');
+                                    if (input) filters[i] = input.value;
+                                    if (select) filters[i] = select.value;
+                                });
+                                localStorage.setItem('domainsTableFilters', JSON.stringify(filters));
+                            }
+
+                            function loadFiltersFromLocalStorage() {
+                                let global = localStorage.getItem('domainsTableSearch');
+                                if (global) {
+                                    api.search(global);
+                                    globalInput.val(global);
+                                    clearGlobal.show();
+                                }
+                                let filters = JSON.parse(localStorage.getItem('domainsTableFilters') || '{}');
+                                api.columns().every(function (i) {
+                                    let footer = this.footer();
+                                    if (!footer) return;
+                                    let input = footer.querySelector('input');
+                                    let select = footer.querySelector('select');
+                                    if (input && filters[i] !== undefined) {
+                                        input.value = filters[i];
+                                        if (input.value.length > 0) {
+                                            let clearBtn = footer.querySelector('span.dt-clear-btn');
+                                            if (clearBtn) clearBtn.style.display = 'block';
+                                        }
+                                        this.search(filters[i]);
+                                    }
+                                    if (select && filters[i] !== undefined) {
+                                        select.value = filters[i];
+                                        this.search(filters[i]);
+                                    }
+                                });
+                            }
+
+                            function loadFiltersFromURL() {
+                                let params = new URLSearchParams(window.location.search);
+                                let global = params.get('search');
+                                if (global) {
+                                    api.search(global);
+                                    globalInput.val(global);
+                                    clearGlobal.show();
+                                }
+                                api.columns().every(function (i) {
+                                    let footer = this.footer();
+                                    if (!footer) return;
+                                    let input = footer.querySelector('input');
+                                    let select = footer.querySelector('select');
+                                    let val = params.get('col' + i);
+                                    if (input && val !== null) {
+                                        input.value = val;
+                                        if (input.value.length > 0) {
+                                            let clearBtn = footer.querySelector('span.dt-clear-btn');
+                                            if (clearBtn) clearBtn.style.display = 'block';
+                                        }
+                                        this.search(val);
+                                    }
+                                    if (select && val !== null) {
+                                        select.value = val;
+                                        this.search(val);
+                                    }
+                                });
+                            }
+
+                            function updateURL() {
+                                let params = new URLSearchParams(window.location.search);
+                                params.set('search', api.search());
+                                api.columns().every(function (i) {
+                                    let footer = this.footer();
+                                    if (!footer) return;
+                                    let input = footer.querySelector('input');
+                                    let select = footer.querySelector('select');
+                                    if (input) params.set('col' + i, input.value);
+                                    if (select) params.set('col' + i, select.value);
+                                });
+                                window.history.replaceState({}, '', `${location.pathname}?${params.toString()}`);
+                            }
+
+                            loadFiltersFromLocalStorage();
+                            loadFiltersFromURL();
+                            api.draw(false);
+                        },
+                        columns: [
+                            // Grouping by Own, Private and Public
+                            {
+                                data: "group_field",
+                                visible: false
+                            },
+                            // ID column (hidden but sortable)
+                            {
+                                data: "id",
+                                visible: false,     // hide from UI
+                                searchable: false   // optional
+                            },
+                            // ---- Name ----
+                            {
+                                orderSequence: ['asc', 'desc'],
+                                data: null,
+                                render: function (data, type, row) {
+                                    if (type === "display" && row.is_owner) {
+                                        // what the user sees in the table
+                                        return `<a href="/domain/${row.id}/">${row.name}</a>`;
+                                    }
+                                    // fallback
+                                    return row.name;
+                                }
+                            },
+                            // ---- Public ----
+                            {
+                                orderSequence: ['asc', 'desc'],
+                                data: "public",
+                                render: renderYesNo
+                            },
+                            // ---- Available ----
+                            {
+                                orderSequence: ['asc', 'desc'],
+                                data: "available",
+                                render: renderYesNo
+                            },
+                            // ---- Virtual Organization ----
+                            {
+                                orderSequence: ['asc', 'desc'],
+                                data: "vo",
+                                render: function (data) {
+                                    return data;
+                                }
+                            },
+                            // ---- Owner ----
+                            {
+                                orderSequence: ['asc', 'desc'],
+                                data: "owner",
+                                render: function (data) {
+                                    return data;
+                                }
+                            },
+                            // ---- Comment ----
+                            {
+                                orderSequence: ['asc', 'desc'],
+                                data: "comment",
+                                render: function (data) {
+                                    return data;
+                                }
+                            },
+                        ]
+
+                    });
+
+                });
+            </script>
         </div>
     </div>
 {% endblock %}

@@ -51,6 +51,18 @@
             <form action="{% url 'updater_hostconfig_overview' host.pk %}" method="get">
                 <button type="submit" class="btn btn-primary">{% trans "Configure Updaters" %}</button>
             </form>
+            <h3>{% trans "SSL certificate" %}</h3>
+            <p>{% trans "Generate and upload a CSR (Certificate Sign Request) and retrieve a signed certificate for the host." %}</p>
+            {% if host.ssl_certificate %}
+                <a href="{% url 'host_certificate' host.pk %}" class="btn btn-primary">
+                    <i class="fa fa-eye"></i>&nbsp;View
+                </a>
+                <a href="{% url 'host_certificate_download' host.pk %}" class="btn btn-primary" target="_blank">
+                    <i class="fa fa-download"></i>&nbsp;Download
+                </a>
+            {% else %}
+                <a href="{% url 'host_upload_csr' host.pk %}" class="btn btn-primary"><i class="fa fa-upload"></i>&nbsp;Upload CSR</a>
+            {% endif %}
         </div>
         <div  class="col-md-4">
             <h3>{% trans "Update Nameserver Records" %}</h3>

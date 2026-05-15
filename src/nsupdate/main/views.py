@@ -2,32 +2,35 @@
 """
 views for the interactive web user interface
 """
-
-import socket
 from datetime import timedelta
 
 import dns.name
-
-from django.conf import settings
-from django.db.models import Q
-from django.views.generic import View, TemplateView, CreateView
-from django.views.generic.edit import UpdateView, DeleteView
-from django.http import HttpResponse, HttpResponseRedirect
-from django.contrib.auth.decorators import login_required
-from django.contrib.auth import get_user_model
-from django.contrib import messages
-from django.utils.decorators import method_decorator
-from django.urls import reverse
-from django.http import Http404
+from dal import autocomplete
 from django import template
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import get_user_model
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.humanize.templatetags.humanize import naturaltime
+from django.core.exceptions import PermissionDenied
+from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
+from django.shortcuts import redirect, get_object_or_404
+from django.urls import reverse
+from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.utils.timezone import now
+from django.views.generic import View, TemplateView, CreateView, DetailView
+from django.views.generic.detail import SingleObjectMixin
+from django.views.generic.edit import UpdateView, DeleteView
 
 from . import dnstools
-from .iptools import normalize_ip
-
 from .forms import (CreateHostForm, EditHostForm, CreateRelatedHostForm, EditRelatedHostForm,
-                    CreateDomainForm, EditDomainForm, CreateUpdaterHostConfigForm, EditUpdaterHostConfigForm)
-from .models import Host, RelatedHost, Domain, ServiceUpdaterHostConfig
+                    CreateDomainForm, EditDomainForm, CreateUpdaterHostConfigForm, EditUpdaterHostConfigForm,
+                    HostCsrUploadForm)
+from .iptools import normalize_ip
+from .models import Host, RelatedHost, Domain, ServiceUpdaterHostConfig, VirtualOrganization, VOMembership
+from ..utils.cert import issue_certificate, parse_certificate
 
 
 class GenerateSecretView(UpdateView):
@@ -118,9 +121,10 @@ class StatusView(TemplateView):
         context = super(
             StatusView, self).get_context_data(**kwargs)
         context['nav_status'] = True
-        context['domains_total'] = Domain.objects.count()
-        context['domains_unavailable'] = Domain.objects.filter(available=False).count()
-        context['domains_public'] = Domain.objects.filter(public=True).count()
+        domains = Domain.objects.visible_to(self.request.user)
+        context['domains_total'] = domains.count()
+        context['domains_unavailable'] = domains.filter(available=False).count()
+        context['domains_public'] = domains.filter(public=True).count()
         context['hosts_total'] = Host.objects.count()
         context['hosts_unavailable'] = Host.objects.filter(available=False).count()
         context['hosts_abuse'] = Host.objects.filter(abuse=True).count()
@@ -192,14 +196,16 @@ class OverviewView(TemplateView):
     def get_context_data(self, **kwargs):
         context = super(OverviewView, self).get_context_data(**kwargs)
         context['nav_overview'] = True
-        context['hosts'] = Host.objects.filter(created_by=self.request.user).select_related("domain")\
+        context['hosts'] = Host.objects.filter(created_by=self.request.user).select_related("domain") \
             .only("name", "comment", "available", "client_faults", "server_faults", "abuse_blocked", "abuse",
-                  "last_update_ipv4", "tls_update_ipv4", "last_update_ipv6", "tls_update_ipv6", "domain__name", "wildcard")
-        context['your_domains'] = Domain.objects.filter(
-            created_by=self.request.user).select_related("created_by__profile")\
+                  "last_update_ipv4", "tls_update_ipv4", "last_update_ipv6", "tls_update_ipv6", "domain__name",
+                  "wildcard")
+        domains = Domain.objects.visible_to(self.request.user)
+        context['your_domains'] = domains.filter(
+            created_by=self.request.user).select_related("created_by__profile") \
             .only("name", "public", "available", "comment", "created_by__username")
-        context['public_domains'] = Domain.objects.filter(
-            public=True).exclude(created_by=self.request.user).select_related("created_by")\
+        context['public_domains'] = domains.filter(
+            public=True).exclude(created_by=self.request.user).select_related("created_by") \
             .only("name", "public", "available", "comment", "created_by__username")
         return context
 
@@ -218,8 +224,7 @@ class AddHostView(CreateView):
 
     def get_form(self, form_class=None):
         form = super(AddHostView, self).get_form(form_class)
-        form.fields['domain'].queryset = Domain.objects.filter(
-            Q(created_by=self.request.user) | Q(public=True))
+        form.fields['domain'].queryset = Domain.objects.visible_to(self.request.user)
         return form
 
     def form_valid(self, form):
@@ -351,7 +356,7 @@ class AddRelatedHostView(CreateView):
         return super(AddRelatedHostView, self).dispatch(*args, **kwargs)
 
     def get_success_url(self):
-        return reverse('related_host_overview', args=(self.object.main_host.pk, ))
+        return reverse('related_host_overview', args=(self.object.main_host.pk,))
 
     def get_form(self, form_class=None):
         form = super(AddRelatedHostView, self).get_form(form_class)
@@ -386,7 +391,7 @@ class RelatedHostView(UpdateView):
         return super(RelatedHostView, self).dispatch(*args, **kwargs)
 
     def get_success_url(self):
-        return reverse('related_host_overview', args=(self.object.main_host.pk, ))
+        return reverse('related_host_overview', args=(self.object.main_host.pk,))
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
@@ -425,7 +430,7 @@ class DeleteRelatedHostView(DeleteView):
         return obj
 
     def get_success_url(self):
-        return reverse('related_host_overview', args=(self.object.main_host.pk, ))
+        return reverse('related_host_overview', args=(self.object.main_host.pk,))
 
     def get_context_data(self, **kwargs):
         context = super(DeleteRelatedHostView, self).get_context_data(**kwargs)
@@ -464,6 +469,11 @@ class AddDomainView(CreateView):
         context['nav_overview'] = True
         return context
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user
+        return kwargs
+
 
 class DomainView(UpdateView):
     model = Domain
@@ -493,6 +503,11 @@ class DomainView(UpdateView):
         context = super(DomainView, self).get_context_data(**kwargs)
         context['nav_overview'] = True
         return context
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user
+        return kwargs
 
 
 class DeleteDomainView(DeleteView):
@@ -532,7 +547,7 @@ class UpdaterHostConfigOverviewView(CreateView):
         return super(UpdaterHostConfigOverviewView, self).dispatch(*args, **kwargs)
 
     def get_success_url(self):
-        return reverse('updater_hostconfig_overview', args=(self.__host.pk, ))
+        return reverse('updater_hostconfig_overview', args=(self.__host.pk,))
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
@@ -607,6 +622,7 @@ class RobotsTxtView(View):
     Dynamically serve robots.txt content.
     If you like, you can optimize this by statically serving this by your web server.
     """
+
     def get(self, request):
         content = """\
 User-agent: *
@@ -657,3 +673,260 @@ you found an issue in the code (then please file an issue for this and tell how 
 """ % dict(reason=reason)
         status = 403
     return HttpResponse(content, status=status, content_type="text/plain")
+
+
+class HostUploadCsrView(UpdateView):
+    model = Host
+    template_name = "main/host_upload_csr.html"
+    form_class = HostCsrUploadForm
+
+    @method_decorator(login_required)
+    def dispatch(self, request, *args, **kwargs):
+        return super(HostUploadCsrView, self).dispatch(request, *args, **kwargs)
+
+    def get_error_url(self):
+        return reverse("host_upload_csr", kwargs={"pk": self.object.pk})
+
+    def get_success_url(self):
+        return reverse("host_certificate", kwargs={"pk": self.object.pk})
+
+    def form_valid(self, form):
+
+        csr_pem = form.cleaned_data.get(HostCsrUploadForm.FieldNames.CSR_PEM)
+        csr_is_valid, csr_validation_message = self.object.validate_csr(csr_pem)
+
+        if not csr_is_valid:
+            messages.error(self.request, csr_validation_message)
+            return redirect(self.get_error_url())
+
+        messages.success(self.request, "CSR accepted.")
+
+        # issue a certificate for the host
+        result = issue_certificate(csr_pem)
+        if result['status'] == 'OK':
+            self.object.ssl_certificate = result['certs']['fullchain.pem']
+            self.object.save(update_fields=['ssl_certificate'])
+        for msg in result['messages']:
+            messages.add_message(self.request, *msg)
+
+        return redirect(self.get_success_url())
+
+    def get_object(self, *args, **kwargs):
+        obj = super(HostUploadCsrView, self).get_object(*args, **kwargs)
+        if obj.created_by != self.request.user:
+            raise Http404
+        return obj
+
+
+class HostCertificateView(DetailView):
+    model = Host
+    template_name = "main/host_certificate.html"
+
+    @method_decorator(login_required)
+    def dispatch(self, request, *args, **kwargs):
+
+        obj = self.get_object()
+
+        if obj.ssl_certificate is None:
+            return redirect("host_upload_csr", pk=obj.id)
+
+        return super(HostCertificateView, self).dispatch(request, *args, **kwargs)
+
+    def get_object(self, *args, **kwargs):
+        obj = super(HostCertificateView, self).get_object(*args, **kwargs)
+        if obj.created_by != self.request.user:
+            raise Http404
+        return obj
+
+    def get_context_data(self, **kwargs):
+        """Add the host to the template context."""
+        context = super(HostCertificateView, self).get_context_data(**kwargs)
+
+        if self.object.ssl_certificate:
+            # certificate was already issued
+            context['cert'] = parse_certificate(self.object.ssl_certificate)
+            now = timezone.now()
+            context['now'] = now
+            not_after = context['cert']['not_after']
+            if timezone.is_naive(not_after):
+                not_after = timezone.make_aware(not_after)
+            context['cert_days_to_expire'] = (not_after - now).days
+
+        return context
+
+
+class HostDownloadCertificateView(LoginRequiredMixin, View):
+
+    def get(self, request, host_id):
+        host = get_object_or_404(Host, pk=host_id, created_by=self.request.user)
+
+        if not host.ssl_certificate:
+            return HttpResponse(
+                "No certificate available for this host.",
+                status=404,
+                content_type="text/plain",
+            )
+
+        cert_content = host.ssl_certificate
+
+        # Ensure bytes, convert if stored as text
+        if isinstance(cert_content, str):
+            cert_content = cert_content.encode("utf-8")
+
+        filename = f"{host.get_fqdn()}.pem"
+
+        response = HttpResponse(
+            cert_content,
+            content_type="application/x-pem-file",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+
+class VirtualOrganizationAutocomplete(LoginRequiredMixin, autocomplete.Select2QuerySetView):
+    create_field = "name"
+
+    def get_queryset(self):
+        qs = VirtualOrganization.objects.visible_to(self.request.user)
+        if self.q:
+            qs = qs.filter(name__icontains=self.q)
+        return qs
+
+    def create_object(self, name):
+
+        user = self.request.user
+
+        # Only staff can create
+        if not user or not user.is_staff:
+            raise PermissionDenied()
+
+        vo, created = VirtualOrganization.objects.get_or_create(
+            name=name,
+            created_by=user,
+        )
+
+        VOMembership.objects.get_or_create(
+            user=user,
+            vo=vo
+        )
+
+        return vo
+
+    def has_add_permission(self, request):
+        return request.user.is_staff
+
+
+class HostIpv4View(
+    SingleObjectMixin,
+    View
+):
+    model = Host
+
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+
+        if self.object.created_by != request.user:
+            raise Http404
+
+        return JsonResponse({
+            "address": self.object.get_ipv4(),
+            "last_update": self.object.last_update_ipv4.isoformat() if self.object.last_update_ipv4 else None,
+            "last_update_display": naturaltime(self.object.last_update_ipv4) if self.object.last_update_ipv4 else None,
+            "tls_update": self.object.tls_update_ipv4,
+        })
+
+
+class HostIpv6View(
+    SingleObjectMixin,
+    View
+):
+    model = Host
+
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+
+        if self.object.created_by != request.user:
+            raise Http404
+
+        return JsonResponse({
+            "address": self.object.get_ipv6(),
+            "last_update": self.object.last_update_ipv6.isoformat() if self.object.last_update_ipv6 else None,
+            "last_update_display": naturaltime(self.object.last_update_ipv6) if self.object.last_update_ipv6 else None,
+            "tls_update": self.object.tls_update_ipv6,
+        })
+
+
+class HostsView(View):
+    def get(self, request):
+        draw = int(request.GET.get("draw", 1))
+
+        if self.request.user.is_anonymous or not self.request.user.is_authenticated:
+            raise Http404
+
+        queryset = Host.objects.filter(created_by=self.request.user).select_related("domain") \
+            .only("name", "comment", "available", "client_faults", "server_faults", "abuse_blocked", "abuse",
+                  "last_update_ipv4", "tls_update_ipv4", "last_update_ipv6", "tls_update_ipv6", "domain__name",
+                  "wildcard")
+
+        total = queryset.count()
+
+        data = []
+        for host in queryset:
+            data.append({
+                "id": host.pk,
+                "fqdn": f"{host.get_fqdn()}",
+                "wildcard": host.wildcard,
+                "comment": host.comment,
+                "available": host.available,
+                "client_faults": host.client_faults,
+                "server_faults": host.server_faults,
+                "abuse": host.abuse,
+                "abuse_blocked": host.abuse_blocked,
+            })
+
+        return JsonResponse({
+            "draw": draw,
+            "recordsTotal": total,
+            "recordsFiltered": total,
+            "data": data,
+        })
+
+
+class DomainsView(View):
+    def get(self, request):
+        draw = int(request.GET.get("draw", 1))
+
+        queryset = Domain.objects.visible_to(
+            self.request.user
+        ).select_related(
+            "created_by",
+        ).only(
+            "name",
+            "public",
+            "available",
+            "comment",
+            "created_by__username"
+        )
+
+        total = queryset.count()
+
+        data = []
+        for domain in queryset:
+            data.append({
+                "id": domain.pk,
+                "name": domain.name,
+                "public": domain.public,
+                "available": domain.available,
+                "vo": domain.vo.name if domain.vo else None,
+                "comment": domain.comment,
+                "owner": domain.created_by.username,
+                "is_owner": domain.created_by == self.request.user,
+                "group_field": "My domains" if domain.created_by == self.request.user else "Public" if domain.public else "Private",
+            })
+
+        return JsonResponse({
+            "draw": draw,
+            "recordsTotal": total,
+            "recordsFiltered": total,
+            "data": data,
+        })

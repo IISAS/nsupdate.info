@@ -2,25 +2,27 @@
 models for hosts, domains, service updaters, ...
 """
 
+import base64
 import re
 import secrets
 import time
-import base64
+from typing import Tuple
 
-import dns.resolver
 import dns.message
-
-from django.db import models
+import dns.resolver
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
-from django.conf import settings
+from django.db import models
 from django.db.models.signals import pre_delete, post_save
-from django.contrib.auth.hashers import make_password
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
 from . import dnstools
+from .manager import DomainManager, VirtualOrganizationManager
+from ..utils.cert import parse_csr
 
 RESULT_MSG_LEN = 255
 
@@ -83,6 +85,58 @@ UPDATE_ALGORITHMS = {
 UPDATE_ALGORITHM_CHOICES = [(k, k) for k in UPDATE_ALGORITHMS]
 
 
+class VOMembership(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE
+    )
+    vo = models.ForeignKey(
+        "VirtualOrganization",
+        on_delete=models.CASCADE
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "vo"],
+                name="unique_user_vo_membership"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user} in {self.vo}"
+
+
+class VirtualOrganization(models.Model):
+    name = models.CharField(
+        _("name"),
+        max_length=255,
+        unique=True,
+        help_text=_("Virtual Organization name")
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name='private_vos',
+        verbose_name=_("created by"),
+        default=None,
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE
+    )
+    members = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through="VOMembership",
+        related_name="vos",
+        blank=True,
+        help_text=_("Users who belong to this Virtual Organization")
+    )
+
+    objects = VirtualOrganizationManager()
+
+    def __str__(self):
+        return self.name
+
+
 class Domain(models.Model):
     name = models.CharField(
         _("name"),
@@ -132,6 +186,17 @@ class Domain(models.Model):
     created = models.DateTimeField(_("created at"), auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='domains', verbose_name=_("created by"),
                                    on_delete=models.CASCADE)
+    vo = models.ForeignKey(
+        VirtualOrganization,
+        on_delete=models.PROTECT,
+        null=True,  # allows “no VO”
+        blank=True,  # allows empty in forms/admin
+        verbose_name="Virtual organization",
+        help_text="Limit domain to a selected virtual organization's scope.",
+        related_name="domains",
+    )
+
+    objects = DomainManager()
 
     def __str__(self):
         return self.name
@@ -175,7 +240,8 @@ class Host(models.Model):
     )
     update_secret = models.CharField(
         _("update secret"),
-        max_length=128,  # secret gets hashed (on save) to salted sha1, "sha1" + "$" + 22 chars salt + "$" + 40 chars sha1 = 68 chars
+        max_length=128,
+        # secret gets hashed (on save) to salted sha1, "sha1" + "$" + 22 chars salt + "$" + 40 chars sha1 = 68 chars
     )
     comment = models.CharField(
         _("comment"),
@@ -258,6 +324,58 @@ class Host(models.Model):
     created = models.DateTimeField(_("created at"), auto_now_add=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='hosts', verbose_name=_("created by"),
                                    on_delete=models.CASCADE)
+    # stores signed certificate
+    ssl_certificate = models.TextField(blank=True, null=True)
+
+    def validate_csr(self, csr_pem: str) -> Tuple[bool, str]:
+        """
+        Validate whether the given CSR matches this host's FQDN.
+
+        Returns:
+            (is_valid, message)
+        """
+        host_fqdn = str(self.get_fqdn())
+
+        try:
+            csr_info = parse_csr(csr_pem)
+        except Exception as e:
+            return (False, str(e))
+
+        csr_cn = csr_info.get("common_name")
+        csr_sans = csr_info.get("sans", [])
+        csr_has_wildcard = csr_info.get("has_wildcard", False)
+
+        # --- Missing CN in CSR ---
+        if not csr_cn:
+            return (False, "CSR is missing a Common Name (CN).")
+
+        # --- CN in CSR does not match FQDN of the host ---
+        if csr_cn != host_fqdn:
+            return (False, "Common Name (CN) in CSR does not match FQDN of the host.")
+
+        allowed_sans = [
+            host_fqdn,
+            f'*.{host_fqdn}'
+        ]
+        for csr_san in csr_sans:
+            if csr_san not in allowed_sans:
+                return (False, "CRS includes unallowed SAN.")
+
+        if self.wildcard:
+            if csr_has_wildcard:
+                if f'*.{host_fqdn}' not in csr_sans:
+                    # --- wildcard does not match *.host.domain ---
+                    return (False, f"CRS SAN list does not include '*.{host_fqdn}'.")
+            else:
+                # --- missing wildcard in CSR ---
+                return (False, "CSR is missing wildcard.")
+        else:
+            if csr_has_wildcard:
+                # --- host not having wildcard but CSR declares it ---
+                return (False, "CSR contains wildcard, but the host does not allow it.")
+
+        # --- CSR is valid for signing ---
+        return (True, "CSR is valid")
 
     def __str__(self):
         return u"%s.%s" % (self.name, self.domain.name)

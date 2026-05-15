@@ -359,7 +359,7 @@ class Host(models.Model):
         ]
         for csr_san in csr_sans:
             if csr_san not in allowed_sans:
-                return (False, f"CRS includes unallowed SAN.")
+                return (False, "CRS includes unallowed SAN.")
 
         if self.wildcard:
             if csr_has_wildcard:

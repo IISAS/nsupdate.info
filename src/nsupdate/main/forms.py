@@ -242,8 +242,8 @@ class HostCsrUploadForm(forms.ModelForm):
             b64_lines = [
                 line for line in lines
                 if not line.startswith("-----BEGIN")
-                   and not line.startswith("-----END")
-                   and line.strip() != ""
+                and not line.startswith("-----END")
+                and line.strip() != ""
             ]
             file_content_b64 = ''.join(b64_lines)
         else:

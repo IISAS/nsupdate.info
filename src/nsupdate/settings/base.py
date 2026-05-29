@@ -332,6 +332,7 @@ AUTHENTICATION_BACKENDS = (
 SOCIAL_AUTH_ISSUER_BACKEND_MAP = {
     'https://aai.egi.eu/oidc': 'egi',
     'https://aai-dev.egi.eu/auth/realms/egi': 'egi',
+    'https://aai.egi.eu/auth/realms/egi': 'egi',
 }
 
 SOCIAL_AUTH_LOGIN_REDIRECT_URL = '/'

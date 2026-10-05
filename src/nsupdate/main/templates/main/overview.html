@@ -229,7 +229,9 @@
         <div class="col-md-12">
             <h3>
                 {% trans "Domains (yours first, then public)" %}
+                {% if request.user.is_staff %}
                 <a href="{% url 'add_domain' %}" class="btn btn-primary btn-sm">{% trans "Add Domain" %}</a>
+                {% endif %}
             </h3>
 
             <table id="domains-table" class="table table-striped table-bordered" style="width:100%">

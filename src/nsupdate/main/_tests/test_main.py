@@ -92,7 +92,7 @@ def test_views_logged_in(client):
         ('domain_view', dict(pk=1), 200),
         ('domain_view', dict(pk=2), 404),
         ('domain_view', dict(pk=100), 404),
-        ('add_domain', dict(), 200),
+        ('add_domain', dict(), 403),
         ('delete_domain', dict(pk=1), 200),
         ('delete_domain', dict(pk=2), 404),
         ('delete_domain', dict(pk=100), 404),
@@ -110,3 +110,12 @@ def test_views_logged_in(client):
         print("%s, %s, %s" % (view, kwargs, status_code))
         response = client.get(reverse(view, kwargs=kwargs))
         assert response.status_code == status_code
+
+
+def test_add_domain_staff(client, django_user_model):
+    user = django_user_model.objects.get(username=USERNAME)
+    user.is_staff = True
+    user.save()
+    client.login(username=USERNAME, password=PASSWORD)
+    response = client.get(reverse('add_domain'))
+    assert response.status_code == 200

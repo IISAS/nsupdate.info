@@ -445,6 +445,9 @@ class AddDomainView(CreateView):
 
     @method_decorator(login_required)
     def dispatch(self, *args, **kwargs):
+        # only staff can add domains
+        if not self.request.user.is_staff:
+            raise PermissionDenied()
         return super(AddDomainView, self).dispatch(*args, **kwargs)
 
     def get_success_url(self):

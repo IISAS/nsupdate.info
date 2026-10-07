@@ -975,24 +975,33 @@ class DomainsView(View):
             "public",
             "available",
             "comment",
-            "created_by__username"
+            "created_by__username",
+            "created_by__first_name",
+            "created_by__last_name",
+            "created_by__email",
         )
 
         total = queryset.count()
 
         data = []
         for domain in queryset:
-            data.append({
+            owner = domain.created_by
+            row = {
                 "id": domain.pk,
                 "name": domain.name,
                 "public": domain.public,
                 "available": domain.available,
                 "vo": domain.vo.name if domain.vo else None,
                 "comment": domain.comment,
-                "owner": domain.created_by.username,
-                "is_owner": domain.created_by == self.request.user,
-                "group_field": "My domains" if domain.created_by == self.request.user else "Public" if domain.public else "Private",
-            })
+                "owner": owner.username,
+                "owner_name": owner.get_full_name(),
+                "is_owner": owner == self.request.user,
+                "group_field": "My domains" if owner == self.request.user else "Public" if domain.public else "Private",
+            }
+            # public domains are listed to everybody, show e-mail addresses to staff only
+            if self.request.user.is_staff:
+                row["owner_email"] = owner.email
+            data.append(row)
 
         return JsonResponse({
             "draw": draw,

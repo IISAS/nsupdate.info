@@ -75,3 +75,37 @@ html, body {
     display: block;
     text-align: left;
 }
+
+/* domain owner: short label in the table, full details in a popover */
+#domains-table .owner-cell {
+    white-space: nowrap;
+}
+
+.owner-popover {
+    cursor: pointer;
+    text-decoration: none;
+    border-bottom: 1px dotted;
+}
+
+.owner-popover:hover,
+.owner-popover:focus {
+    text-decoration: none;
+}
+
+.popover .owner-info-row {
+    margin-bottom: 4px;
+}
+
+.popover .owner-info-row:last-child {
+    margin-bottom: 0;
+}
+
+.popover .owner-info-label {
+    display: block;
+    font-weight: bold;
+}
+
+.popover .owner-info-value {
+    word-break: break-all; /* long opaque IDs like 517e...b3@egi.eu have no break opportunities */
+    overflow-wrap: anywhere;
+}

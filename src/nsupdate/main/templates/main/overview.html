@@ -270,6 +270,50 @@
                     return data;
                 }
 
+                function escapeHtml(value) {
+                    return String(value ?? "").replace(/[&<>"']/g, c => ({
+                        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+                    })[c]);
+                }
+
+                // e.g. 517e68d16df38e...5b14b3@egi.eu -> 517e68…4b3@egi.eu
+                function shortenUsername(username) {
+                    if (username.length <= 20) return username;
+                    let at = username.lastIndexOf('@');
+                    if (at > 9 && username.length - at <= 20) {
+                        return username.slice(0, 6) + '…' + username.slice(at - 3);
+                    }
+                    return username.slice(0, 8) + '…' + username.slice(-6);
+                }
+
+                function renderOwner(data, type, row) {
+                    let label = row.owner_name || shortenUsername(row.owner);
+                    if (type === "display") {
+                        return `<a tabindex="0" role="button" class="owner-popover"`
+                            + ` data-username="${escapeHtml(row.owner)}"`
+                            + ` data-name="${escapeHtml(row.owner_name)}"`
+                            + ` data-email="${escapeHtml(row.owner_email)}">${escapeHtml(label)}</a>`;
+                    } else if (type === "filter") {
+                        // match both the real name and the full username
+                        return `${row.owner_name} ${row.owner}`;
+                    }
+                    return label;
+                }
+
+                function ownerPopoverContent(el) {
+                    let rows = [
+                        ["{% trans "Name" %}", el.dataset.name],
+                        ["{% trans "Username" %}", el.dataset.username],
+                        ["{% trans "E-mail" %}", el.dataset.email],
+                    ].filter(([, value]) => value);
+                    // only tags allowed by the bootstrap popover sanitizer (no dl/dt/dd)
+                    return '<div class="owner-info">'
+                        + rows.map(([key, value]) =>
+                            `<div class="owner-info-row"><strong class="owner-info-label">${key}</strong>`
+                            + `<div class="owner-info-value">${escapeHtml(value)}</div></div>`).join('')
+                        + '</div>';
+                }
+
                 $(document).ready(function () {
 
                     const domainsTableDefaultOrder = [[2, 'asc']]; // initial sort by name
@@ -292,7 +336,7 @@
                             {targets: 3, className: "dt-left", filterType: "yesno"},
                             {targets: 4, className: "dt-left", filterType: "yesno"},
                             {targets: 5, className: "dt-left", filterType: "text"},
-                            {targets: 6, className: "dt-left", filterType: "text"},
+                            {targets: 6, className: "dt-left owner-cell", filterType: "text"},
                             {targets: 7, className: "dt-left", filterType: "text"},
                         ],
                         initComplete: function () {
@@ -584,9 +628,7 @@
                             {
                                 orderSequence: ['asc', 'desc'],
                                 data: "owner",
-                                render: function (data) {
-                                    return data;
-                                }
+                                render: renderOwner
                             },
                             // ---- Comment ----
                             {
@@ -598,6 +640,19 @@
                             },
                         ]
 
+                    });
+
+                    // owner details popup; delegated, so it survives table redraws
+                    $('#domains-table').popover({
+                        selector: '.owner-popover',
+                        trigger: 'focus',
+                        html: true,
+                        container: 'body',
+                        placement: 'auto top',
+                        title: "{% trans "Owner" %}",
+                        content: function () {
+                            return ownerPopoverContent(this);
+                        }
                     });
 
                 });

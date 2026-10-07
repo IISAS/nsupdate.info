@@ -312,3 +312,18 @@ def test_api_certificate_approval_session_csrf():
     response = client.post(url, **{'HTTP_' + header.upper().replace('-', '_'): token})
     assert response.status_code == 200
     assert response.json()['certificates_requested'] is True
+
+
+def test_domains_owner_details(client, django_user_model):
+    django_user_model.objects.filter(username=USERNAME).update(first_name='John', last_name='Doe')
+    client.login(username=USERNAME, password=PASSWORD)
+    rows = {row['name']: row for row in client.get(reverse('domains')).json()['data']}
+    from conftest import TESTDOMAIN
+    assert rows[TESTDOMAIN]['owner'] == USERNAME
+    assert rows[TESTDOMAIN]['owner_name'] == 'John Doe'
+    # e-mail addresses are shown to staff only
+    assert all('owner_email' not in row for row in rows.values())
+
+    django_user_model.objects.filter(username=USERNAME).update(is_staff=True)
+    rows = client.get(reverse('domains')).json()['data']
+    assert all('owner_email' in row for row in rows)

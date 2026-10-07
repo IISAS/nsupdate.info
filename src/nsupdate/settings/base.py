@@ -549,7 +549,8 @@ SPECTACULAR_SETTINGS = {
     'SECURITY': [{'SocialOAuth2Auth': []}],
     'SWAGGER_UI_SETTINGS': {
         'persistAuthorization': True,
-        'withCredentials': True,
+        # keep the default same-origin credentials: swagger ui only adds the CSRF header to
+        # same-origin requests, which session-authenticated POST/DELETE calls need
     },
     'AUTHENTICATION_WHITELIST': [
         'nsupdate.auth.drf_social_oauth2.authentication.SocialOAuth2Authentication'

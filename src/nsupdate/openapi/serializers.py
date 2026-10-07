@@ -17,6 +17,7 @@ class DomainSerializer(serializers.HyperlinkedModelSerializer):
             'public',
             'virtual_organization',
             'available',
+            'certificates_enabled',
             'comment',
             'created',
             'last_update',
@@ -45,6 +46,7 @@ class DomainCreateSerializer(serializers.HyperlinkedModelSerializer):
 class HostSerializer(serializers.HyperlinkedModelSerializer):
     domain_name = serializers.CharField(source='domain.name', read_only=True)
     fqdn = serializers.CharField(read_only=True)
+    certificates_enabled = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Host
@@ -65,13 +67,34 @@ class HostSerializer(serializers.HyperlinkedModelSerializer):
             'tls_update_ipv4',
             'last_update_ipv6',
             'tls_update_ipv6',
+            'certificates_requested',
+            'certificates_approved',
+            'certificates_enabled',
         ]
+        read_only_fields = ['certificates_requested', 'certificates_approved']
         extra_kwargs = {
             'url': {
                 'view_name': 'host-detail',
                 'lookup_field': 'fqdn',
             }
         }
+
+
+class CertificateApprovalSerializer(serializers.ModelSerializer):
+    fqdn = serializers.CharField(read_only=True)
+    domain_certificates_enabled = serializers.BooleanField(source='domain.certificates_enabled', read_only=True)
+    certificates_enabled = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Host
+        fields = [
+            'fqdn',
+            'certificates_requested',
+            'certificates_approved',
+            'domain_certificates_enabled',
+            'certificates_enabled',
+        ]
+        read_only_fields = fields
 
 
 class CSRTextUploadSerializer(serializers.Serializer):

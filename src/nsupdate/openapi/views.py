@@ -23,6 +23,7 @@ from .permissions import CreatedByUser
 from .serializers import (
     DomainSerializer,
     HostSerializer,
+    CertificateApprovalSerializer,
     CSRTextUploadSerializer,
     CSRFileUploadSerializer, )
 from ..utils.cert import issue_certificate
@@ -159,7 +160,7 @@ class HostsViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet
 ):
-    http_method_names = ['get', 'post']
+    http_method_names = ['get', 'post', 'delete']
 
     serializer_class = HostSerializer
 
@@ -349,6 +350,13 @@ class HostsViewSet(
         """
         host = self.get_object()
 
+        if not host.certificates_enabled:
+            return Response(
+                {"detail": "Certificates are not enabled for this host. "
+                           f"Request approval via POST /api/hosts/{host.fqdn}/certificate/approval."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         if request.method.lower() == "post":
             success, response = self._upload_csr_and_issue_cert(request, host)
             if not success:
@@ -367,6 +375,85 @@ class HostsViewSet(
         filename = f"{host.get_fqdn()}.pem"
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+
+    @extend_schema(
+        methods=["get"],
+        summary="Get certificate approval status",
+        description=(
+            "Returns whether issuing SSL certificates was requested for the given host, "
+            "whether staff approved it and whether certificates are enabled "
+            "(for the whole domain or by the approval)."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="fqdn",
+                location=OpenApiParameter.PATH,
+                description="Fully Qualified Domain Name of the host",
+                required=True,
+                type=OpenApiTypes.STR,
+            ),
+        ],
+        responses={200: CertificateApprovalSerializer, 404: OpenApiTypes.OBJECT},
+    )
+    @extend_schema(
+        methods=["post"],
+        summary="Request certificate approval",
+        description=(
+            "Asks staff for permission to issue SSL certificates for the given host. "
+            "Once approved (or if certificates are enabled for the whole domain), "
+            "a CSR can be uploaded via POST /api/hosts/{fqdn}/certificate. "
+            "Requesting again is harmless and returns the current state."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="fqdn",
+                location=OpenApiParameter.PATH,
+                description="Fully Qualified Domain Name of the host",
+                required=True,
+                type=OpenApiTypes.STR,
+            ),
+        ],
+        request=None,
+        responses={200: CertificateApprovalSerializer, 404: OpenApiTypes.OBJECT},
+    )
+    @extend_schema(
+        methods=["delete"],
+        summary="Withdraw certificate approval request",
+        description=(
+            "Withdraws the request for issuing SSL certificates for the given host. "
+            "A previous approval by staff is dropped as well."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="fqdn",
+                location=OpenApiParameter.PATH,
+                description="Fully Qualified Domain Name of the host",
+                required=True,
+                type=OpenApiTypes.STR,
+            ),
+        ],
+        request=None,
+        responses={200: CertificateApprovalSerializer, 404: OpenApiTypes.OBJECT},
+    )
+    @action(
+        detail=True,
+        methods=["get", "post", "delete"],
+        url_path="certificate/approval",
+    )
+    def certificate_approval(self, request, fqdn=None):
+        """
+        HTTP GET -> Current status of the request
+        HTTP POST -> Request approval to issue SSL certificates
+        HTTP DELETE -> Cancel the request (and drop a previous approval)
+        """
+        host = self.get_object()
+
+        if request.method.lower() == "post":
+            host.request_certificates()
+        elif request.method.lower() == "delete":
+            host.cancel_certificate_request()
+
+        return Response(CertificateApprovalSerializer(host).data)
 
     @extend_schema(
         summary="Resolve host IPv4.",

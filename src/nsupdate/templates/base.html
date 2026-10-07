@@ -82,6 +82,7 @@
                                     <li><a href="{% url 'account_settings' %}"><i class="fa fa-key fa-fw"></i> {% trans 'Password change' %}</a></li>
                                     {% if request.user.is_staff %}
                                         <li><a href="{% url 'admin:index' %}"><i class="fa fa-wrench fa-fw"></i> {% trans 'Admin interface' %}</a></li>
+                                        <li><a href="{% url 'certificate_requests' %}"><i class="fa fa-certificate fa-fw"></i> {% trans 'Certificate requests' %}</a></li>
                                     {% endif %}
                                     <li><a href="{% url 'logout' %}"><i class="fa fa-sign-out-alt fa-fw"></i> {% trans 'Log out' %}</a></li>
                                 </ul>

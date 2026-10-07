@@ -82,7 +82,8 @@ class CreateDomainForm(forms.ModelForm):
 
     class Meta(object):
         model = Domain
-        fields = ['name', 'vo', 'nameserver_ip', 'nameserver2_ip', 'nameserver_update_algorithm', 'comment']
+        fields = ['name', 'vo', 'nameserver_ip', 'nameserver2_ip', 'nameserver_update_algorithm', 'comment',
+                  'certificates_enabled']
         widgets = {
             'name': forms.widgets.TextInput(attrs=dict(autofocus=None)),
         }
@@ -91,6 +92,9 @@ class CreateDomainForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.user = user
         self.fields["vo"].queryset = VirtualOrganization.objects.visible_to(user)
+        # only staff can enable certificates for a domain
+        if not (user and user.is_staff):
+            self.fields["certificates_enabled"].disabled = True
 
     def clean_nameserver_update_secret(self):
         secret = self.cleaned_data['nameserver_update_secret']
@@ -117,12 +121,15 @@ class EditDomainForm(forms.ModelForm):
     class Meta(object):
         model = Domain
         fields = ['comment', 'vo', 'nameserver_ip', 'nameserver2_ip', 'public', 'available',
-                  'nameserver_update_algorithm', 'nameserver_update_secret']
+                  'nameserver_update_algorithm', 'nameserver_update_secret', 'certificates_enabled']
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
         self.fields["vo"].queryset = VirtualOrganization.objects.visible_to(user)
+        # only staff can enable certificates for a domain
+        if not (user and user.is_staff):
+            self.fields["certificates_enabled"].disabled = True
 
     def clean_nameserver_update_secret(self):
         secret = self.cleaned_data['nameserver_update_secret']

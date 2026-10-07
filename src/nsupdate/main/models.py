@@ -196,6 +196,12 @@ class Domain(models.Model):
         related_name="domains",
     )
 
+    certificates_enabled = models.BooleanField(
+        _("enable certificates"),
+        default=False,
+        help_text=_("Check to allow issuing SSL certificates for all hosts of this domain - "
+                    "if not checked, each host needs an individual approval"))
+
     objects = DomainManager()
 
     def __str__(self):
@@ -326,6 +332,29 @@ class Host(models.Model):
                                    on_delete=models.CASCADE)
     # stores signed certificate
     ssl_certificate = models.TextField(blank=True, null=True)
+    # certificates can be issued if enabled for the whole domain or approved by staff for this host
+    certificates_requested = models.BooleanField(
+        _("certificates requested"),
+        default=False,
+        help_text=_("Request permission to issue SSL certificates for this host - "
+                    "a staff member must approve it (not needed if the domain already allows certificates)"))
+    certificates_approved = models.BooleanField(
+        _("certificates approved"),
+        default=False,
+        help_text=_("Checked if staff approved issuing SSL certificates for this host"))
+
+    @property
+    def certificates_enabled(self):
+        return self.domain.certificates_enabled or self.certificates_approved
+
+    def request_certificates(self):
+        self.certificates_requested = True
+        self.save(update_fields=['certificates_requested'])
+
+    def cancel_certificate_request(self):
+        # cancelling the request also drops a previous approval
+        self.certificates_requested = self.certificates_approved = False
+        self.save(update_fields=['certificates_requested', 'certificates_approved'])
 
     def validate_csr(self, csr_pem: str) -> Tuple[bool, str]:
         """

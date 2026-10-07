@@ -53,15 +53,50 @@
             </form>
             <h3>{% trans "SSL certificate" %}</h3>
             <p>{% trans "Generate and upload a CSR (Certificate Sign Request) and retrieve a signed certificate for the host." %}</p>
-            {% if host.ssl_certificate %}
-                <a href="{% url 'host_certificate' host.pk %}" class="btn btn-primary">
-                    <i class="fa fa-eye"></i>&nbsp;View
-                </a>
-                <a href="{% url 'host_certificate_download' host.pk %}" class="btn btn-primary" target="_blank">
-                    <i class="fa fa-download"></i>&nbsp;Download
-                </a>
+            {% if host.certificates_enabled %}
+                <p>
+                    <span class="label label-success">{% trans "Enabled" %}</span>
+                    {% if host.domain.certificates_enabled %}
+                        {% trans "Certificates are enabled for this host (allowed for the whole domain)." %}
+                    {% else %}
+                        {% trans "Certificates are enabled for this host (approved by staff)." %}
+                    {% endif %}
+                </p>
+                {% if host.ssl_certificate %}
+                    <a href="{% url 'host_certificate' host.pk %}" class="btn btn-primary">
+                        <i class="fa fa-eye"></i>&nbsp;View
+                    </a>
+                    <a href="{% url 'host_certificate_download' host.pk %}" class="btn btn-primary" target="_blank">
+                        <i class="fa fa-download"></i>&nbsp;Download
+                    </a>
+                {% else %}
+                    <a href="{% url 'host_upload_csr' host.pk %}" class="btn btn-primary"><i class="fa fa-upload"></i>&nbsp;Upload CSR</a>
+                {% endif %}
+            {% elif host.certificates_requested %}
+                <p>
+                    <span class="label label-info">{% trans "Requested" %}</span>
+                    {% trans "Your request is awaiting approval by a staff member." %}
+                </p>
+                <form method="post" action="{% url 'host_certificate_approval' host.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" name="action" value="cancel" class="btn btn-default">
+                        <i class="fa fa-times"></i>&nbsp;{% trans "Cancel request" %}
+                    </button>
+                </form>
             {% else %}
-                <a href="{% url 'host_upload_csr' host.pk %}" class="btn btn-primary"><i class="fa fa-upload"></i>&nbsp;Upload CSR</a>
+                <p>
+                    <span class="label label-default">{% trans "Not enabled" %}</span>
+                    {% blocktrans trimmed %}
+                    Issuing SSL certificates is not enabled for this host. Use the button below to ask
+                    a staff member for permission. You will be able to upload a CSR once your request is approved.
+                    {% endblocktrans %}
+                </p>
+                <form method="post" action="{% url 'host_certificate_approval' host.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" name="action" value="request" class="btn btn-primary">
+                        <i class="fa fa-paper-plane"></i>&nbsp;{% trans "Request certificates" %}
+                    </button>
+                </form>
             {% endif %}
         </div>
         <div  class="col-md-4">

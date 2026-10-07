@@ -11,16 +11,18 @@ from .models import Host, RelatedHost, Domain, BlacklistedHost, ServiceUpdater, 
 
 @admin.register(Domain)
 class DomainAdmin(admin.ModelAdmin):
-    list_display = ("name", "public", "available", "created_by")
-    list_filter = ("created", "public", "available")
+    list_display = ("name", "public", "available", "certificates_enabled", "created_by")
+    list_filter = ("created", "public", "available", "certificates_enabled")
     search_fields = ("name", "created_by__username", "created_by__email")
 
 
 @admin.register(Host)
 class HostAdmin(admin.ModelAdmin):
-    list_display = ("name", "domain", "created_by_link", "client_faults", "api_auth_faults", "abuse", "abuse_blocked")
-    list_filter = ("created", "abuse", "abuse_blocked", "domain")
+    list_display = ("name", "domain", "created_by_link", "client_faults", "api_auth_faults", "abuse", "abuse_blocked",
+                    "certificates_requested", "certificates_approved")
+    list_filter = ("created", "abuse", "abuse_blocked", "certificates_requested", "certificates_approved", "domain")
     read_only_fields = ('created_by_link',)
+    actions = ('approve_certificates', 'revoke_certificates')
 
     search_fields = ("name", "created_by__username", "created_by__email")
 
@@ -30,6 +32,14 @@ class HostAdmin(admin.ModelAdmin):
             obj.created_by.username
         ))
     created_by_link.short_description = 'created by'
+
+    @admin.action(description='Approve certificates for selected hosts')
+    def approve_certificates(self, request, queryset):
+        queryset.update(certificates_requested=True, certificates_approved=True)
+
+    @admin.action(description='Revoke certificate approval for selected hosts')
+    def revoke_certificates(self, request, queryset):
+        queryset.update(certificates_approved=False)
 
 
 @admin.register(RelatedHost)

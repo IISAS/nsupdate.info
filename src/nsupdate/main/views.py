@@ -678,6 +678,32 @@ you found an issue in the code (then please file an issue for this and tell how 
     return HttpResponse(content, status=status, content_type="text/plain")
 
 
+def _require_certificates_enabled(host):
+    if not host.certificates_enabled:
+        raise PermissionDenied()
+
+
+class HostCertificateApprovalView(LoginRequiredMixin, View):
+    """
+    let the host owner request (or cancel the request for) permission to issue SSL certificates
+    """
+    http_method_names = ['post']
+
+    def post(self, request, pk):
+        host = get_object_or_404(Host, pk=pk, created_by=request.user)
+        action = request.POST.get('action')
+        if action == 'request':
+            host.request_certificates()
+            msg = 'Certificate request sent to staff.'
+        elif action == 'cancel':
+            host.cancel_certificate_request()
+            msg = 'Certificate request cancelled.'
+        else:
+            return HttpResponse("Invalid action.", status=400, content_type="text/plain")
+        messages.success(request, msg)
+        return redirect('host_view', pk=host.pk)
+
+
 class HostUploadCsrView(UpdateView):
     model = Host
     template_name = "main/host_upload_csr.html"
@@ -718,6 +744,7 @@ class HostUploadCsrView(UpdateView):
         obj = super(HostUploadCsrView, self).get_object(*args, **kwargs)
         if obj.created_by != self.request.user:
             raise Http404
+        _require_certificates_enabled(obj)
         return obj
 
 
@@ -739,6 +766,7 @@ class HostCertificateView(DetailView):
         obj = super(HostCertificateView, self).get_object(*args, **kwargs)
         if obj.created_by != self.request.user:
             raise Http404
+        _require_certificates_enabled(obj)
         return obj
 
     def get_context_data(self, **kwargs):
@@ -762,6 +790,7 @@ class HostDownloadCertificateView(LoginRequiredMixin, View):
 
     def get(self, request, host_id):
         host = get_object_or_404(Host, pk=host_id, created_by=self.request.user)
+        _require_certificates_enabled(host)
 
         if not host.ssl_certificate:
             return HttpResponse(
@@ -784,6 +813,44 @@ class HostDownloadCertificateView(LoginRequiredMixin, View):
         )
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
+
+
+class CertificateRequestsView(LoginRequiredMixin, TemplateView):
+    """
+    staff-only overview of hosts requesting / having approval to issue SSL certificates
+    """
+    template_name = "main/certificate_requests.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not request.user.is_staff:
+            raise PermissionDenied()
+        return super(CertificateRequestsView, self).dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super(CertificateRequestsView, self).get_context_data(**kwargs)
+        hosts = Host.objects.select_related('domain', 'created_by').order_by('domain__name', 'name')
+        context['pending_hosts'] = hosts.filter(
+            certificates_requested=True, certificates_approved=False, domain__certificates_enabled=False)
+        context['approved_hosts'] = hosts.filter(certificates_approved=True)
+        return context
+
+    def post(self, request, *args, **kwargs):
+        host = get_object_or_404(Host, pk=request.POST.get('host_id'))
+        action = request.POST.get('action')
+        if action == 'approve':
+            host.certificates_requested = host.certificates_approved = True
+            msg = 'Certificates approved for %s.'
+        elif action == 'reject':
+            host.certificates_requested = host.certificates_approved = False
+            msg = 'Certificate request rejected for %s.'
+        elif action == 'revoke':
+            host.certificates_approved = False
+            msg = 'Certificate approval revoked for %s.'
+        else:
+            return HttpResponse("Invalid action.", status=400, content_type="text/plain")
+        host.save(update_fields=['certificates_requested', 'certificates_approved'])
+        messages.success(request, msg % str(host.get_fqdn()))
+        return redirect('certificate_requests')
 
 
 class VirtualOrganizationAutocomplete(LoginRequiredMixin, autocomplete.Select2QuerySetView):
